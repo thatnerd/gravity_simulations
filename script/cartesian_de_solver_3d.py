@@ -252,7 +252,8 @@ def rk4_stepper(coords, dt, accel=find_inverse_square_accel, *args, **kwargs):
 
 
 def calculate_orbit(initial_coords, dt, strength=MGsun, 
-		grav_origin=np.array([0.0, 0.0, 0.0]), expected_period=None):
+		grav_origin=np.array([0.0, 0.0, 0.0]), expected_period=None,
+		show_passage_of_time=False):
 	"""
 	Calculates an orbit for an object placed in the vicinity of the sun. Stops
 	when it reaches a time equal to expected_period (or tries to estimate an 
@@ -292,16 +293,15 @@ def calculate_orbit(initial_coords, dt, strength=MGsun,
 		coords = rk4_stepper(coords, dt, accel=find_inverse_square_accel,
 				strength=strength, grav_origin=grav_origin)
 
-#Uncomment if you want a running tally of the number of years that have gone
-#by.
-#		if time > (year_count + 1) *  year:
-#			print year_count, 'years', '(' + str(expected_period / year) + \
-#					' expected)'
-#			year_count += 1 * dt / year
+		if show_passage_of_time:
+			if time > (year_count + 1) *  year:
+				print year_count, 'years', '(' + str(expected_period / year) + \
+						' expected)'
+				year_count += 1 * dt / year
 	return coord_record
 
 
-def find_orbit_completion_point(recarray_of_coords, dt, starting_row=27500):
+def find_orbit_completion_point(recarray_of_coords, dt, starting_row=27400):
 	"""
 	Finds the point in time where the position is closest to its original 
 		position. Only works if we start with y0 = 0 and v_x0 = 0. Yes, it's a 
@@ -320,14 +320,15 @@ def find_orbit_completion_point(recarray_of_coords, dt, starting_row=27500):
 	"""
 	list_of_coords = []
 	for row in recarray_of_coords:
-		new_coord = np.array([[row['x'], row['v_x']],[row['y'], row['v_y']]])
+		new_coord = np.array([[row['x'], row['v_x']],[row['y'], row['v_y']], 
+			[row['z'], row['v_z']]])
 		list_of_coords.append(new_coord)
 
 	start_coords = list_of_coords[0]
-	x0, y0, vx0, vy0 = start_coords.T.flat[:]
+	x0, y0, z0, vx0, vy0, vz0 = start_coords.T.flat[:]
 
 	l_over_m = np.cross(list_of_coords[0][:,0], list_of_coords[0][:,1])
-	if l_over_m >= 0: 
+	if l_over_m.dot(np.array([0, 0, 1])) >= 0: 
 		parity = 1
 	else:
 		parity = -1
@@ -341,10 +342,10 @@ def find_orbit_completion_point(recarray_of_coords, dt, starting_row=27500):
 		if loop_count % 10000 == 0:
 			print "looped", loop_count, "times."
 		step_count += 1
-		xp, yp, vxp, vyp = prev_coords.T.flat[:]
-		x, y, vx, vy = coords.T.flat[:]
+		xp, yp, zp, vxp, vyp, vzp = prev_coords.T.flat[:]
+		x, y, z, vx, vy, vz = coords.T.flat[:]
 		if parity * yp < y0 < parity * y:
-			delta_t = parity * (y - y0) / (.5 * (vy + vyp))
+			delta_t = parity * (y - y0) / vy
 			final_coords = rk4_stepper(prev_coords, delta_t)
 			break
 		prev_coords = coords
@@ -352,56 +353,11 @@ def find_orbit_completion_point(recarray_of_coords, dt, starting_row=27500):
 		period = dt * step_count + delta_t
 		return period, final_coords
 	else:
-		return None
+		return None, None
 
 
 def main():
-	comet_data = 'doc/halleys_comet_orbit.csv'  #Store the data here!
-	halleys_aphelion = 35.1 * AU
-	halleys_perhelion = 0.586 * AU
-	halleys_a = 17.8 * AU
-	halleys_e = 0.967 
-	halleys_period = 75.3 * year
-	halleys_b = calculate_b(halleys_a, halleys_e)
-	halleys_area = np.pi * halleys_a * halleys_b
-	halleys_area_over_time = halleys_area / halleys_period
-## .5 * r * r * thetadot = area_over_time
-##thetadot = 2.0 * area_over_time / r^2
-	v0 = 2.0 * halleys_area_over_time / halleys_aphelion  #@ max distance
-	l_over_m = v0 * halleys_aphelion
-	print 'first L: ', l_over_m
-	start_pos = np.array([halleys_aphelion, 0.0])
-	start_vel = np.array([0.0, v0])
-	start_coords = np.array([start_pos, start_vel]).T
-	dt = 1.0 * 60 * 60 * 24  # 1 day
-	coord_record = calculate_orbit(start_coords, dt, 
-			expected_period=halleys_period + 0.1 * year)
-
-	import csv
-	my_writer = csv.writer(open(comet_data, 'w'))
-	my_writer.writerow(['x', 'y', 'v_x', 'v_y'])
-	for row in coord_record:
-		my_writer.writerow(row.T.flat[:])
-	import matplotlib.mlab as mlab
-	my_data = mlab.csv2rec(comet_data)
-	print "Halley's actual semimajor axis: (good to 3 digits)", halleys_a
-	my_a = (np.max(my_data['x']) + np.min(my_data['x'])) / 2.0
-	print "My calculated semimajor axis: ", my_a
-	print "Logarithmic discrepancy:", (halleys_a - my_a) / halleys_a
-	print "Expected logarithmic discrepancy: ", 0.1 * AU / halleys_a
-	period, final_coords = find_orbit_completion_point(my_data, dt)
-	print 'period = ', period
-	print 'final_coords = ', final_coords
-	print 'diff = ', final_coords - start_coords
-	print 'x ratio =', (final_coords[0][0] - start_coords[0][0]) /\
-			final_coords[0][0]
-	print 'v_y ratio =', (final_coords[1][1] - start_coords[1][1]) /\
-			final_coords[1][1]
-#	import matplotlib.pyplot as plt
-#	my_plot = plt.figure()
-#	ax = my_plot.add_subplot(111)
-#	plt.scatter(my_data['x'], my_data['y'], s=1, facecolor='0.5', lw=0)
-#	plt.show()
+	pass
 
 
 if __name__ == '__main__':
