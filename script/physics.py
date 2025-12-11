@@ -104,7 +104,7 @@ def angular_momentum(
     """
     Compute total angular momentum of the system about the origin.
 
-    In 2D, angular momentum is a scalar (z-component of r × p).
+    L = r × p where p = m*v (momentum).
 
     Args:
         state: Two-body state containing positions and velocities
@@ -112,17 +112,19 @@ def angular_momentum(
         m2: Mass of body 2
 
     Returns:
-        Total angular momentum (positive for counter-clockwise)
+        Total angular momentum vector (z-component nonzero for 2D motion in xy-plane)
     """
     r1, v1 = state.position(0), state.velocity(0)
     r2, v2 = state.position(1), state.velocity(1)
 
-    # L = r × p = r × (m*v) = m * (r × v)
-    # In 2D: r × v = rx*vy - ry*vx
-    L1 = float(m1) * (r1.x * v1.y - r1.y * v1.x)
-    L2 = float(m2) * (r2.x * v2.y - r2.y * v2.x)
+    # L = r × p = r × (m*v)
+    p1 = m1 * v1
+    p2 = m2 * v2
 
-    return AngularMomentumType(L1 + L2)
+    L1 = r1.cross(p1)
+    L2 = r2.cross(p2)
+
+    return L1 + L2
 
 
 def kinetic_energy(

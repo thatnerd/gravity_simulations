@@ -135,8 +135,11 @@ class TestPhysics(unittest.TestCase):
         # Both contribute positive angular momentum (counter-clockwise)
         # L1 = m1 * (r1 x v1) = m1 * (10 * 5 - 0 * 0) = 50 * m1
         # L2 = m2 * (r2 x v2) = m2 * (-10 * -5 - 0 * 0) = 50 * m2
-        expected = float(m1) * 50.0 + float(m2) * 50.0
-        self.assertAlmostEqual(float(L), expected, places=5)
+        expected_z = float(m1) * 50.0 + float(m2) * 50.0
+        # Angular momentum is a 3D vector; for 2D motion, only z-component is nonzero
+        self.assertAlmostEqual(L.z, expected_z, places=5)
+        self.assertAlmostEqual(L.x, 0.0, places=10)
+        self.assertAlmostEqual(L.y, 0.0, places=10)
 
     def test_kinetic_energy(self) -> None:
         """Test kinetic energy calculation."""
@@ -335,7 +338,7 @@ class TestIOHandler(unittest.TestCase):
             positions=np.random.rand(3, 2, 2),
             velocities=np.random.rand(3, 2, 2),
             momentum=np.random.rand(3, 2),
-            angular_momentum=np.random.rand(3),
+            angular_momentum=np.random.rand(3, 3),  # 3D vector
             energy=np.random.rand(3),
             collision=False
         )
@@ -410,9 +413,10 @@ class TestSimulationIntegration(unittest.TestCase):
         state = generate_circular_orbit(m1, m2, T)
         result = run_simulation(state, m1, m2, dt=Time(0.001), t_max=T)
 
-        initial_L = result.angular_momentum[0]
-        max_deviation = np.max(np.abs(result.angular_momentum - initial_L))
-        relative_deviation = max_deviation / abs(initial_L)
+        # For 2D motion, only z-component of angular momentum is nonzero
+        initial_Lz = result.angular_momentum[0, 2]
+        max_deviation = np.max(np.abs(result.angular_momentum[:, 2] - initial_Lz))
+        relative_deviation = max_deviation / abs(initial_Lz)
 
         self.assertLess(relative_deviation, 1e-5)
 

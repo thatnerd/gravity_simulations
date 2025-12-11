@@ -58,7 +58,11 @@ def save_results(result: SimulationResult, filepath: str) -> None:
                 'body2': {'x': result.velocities[i, 1, 0], 'y': result.velocities[i, 1, 1]},
             },
             'momentum': {'x': result.momentum[i, 0], 'y': result.momentum[i, 1]},
-            'angular_momentum': result.angular_momentum[i],
+            'angular_momentum': {
+                'x': result.angular_momentum[i, 0],
+                'y': result.angular_momentum[i, 1],
+                'z': result.angular_momentum[i, 2],
+            },
             'energy': result.energy[i],
         })
 
@@ -92,7 +96,7 @@ def load_results(filepath: str) -> SimulationResult:
     positions = np.zeros((n_steps, 2, 2))
     velocities = np.zeros((n_steps, 2, 2))
     momentum = np.zeros((n_steps, 2))
-    angular_momentum = np.zeros(n_steps)
+    angular_momentum = np.zeros((n_steps, 3))  # 3D vector
     energy = np.zeros(n_steps)
 
     for i, ts in enumerate(timesteps):
@@ -107,7 +111,9 @@ def load_results(filepath: str) -> SimulationResult:
         velocities[i, 1, 1] = ts['velocities']['body2']['y']
         momentum[i, 0] = ts['momentum']['x']
         momentum[i, 1] = ts['momentum']['y']
-        angular_momentum[i] = ts['angular_momentum']
+        angular_momentum[i, 0] = ts['angular_momentum']['x']
+        angular_momentum[i, 1] = ts['angular_momentum']['y']
+        angular_momentum[i, 2] = ts['angular_momentum']['z']
         energy[i] = ts['energy']
 
     return SimulationResult(

@@ -56,8 +56,42 @@ class Vector2D:
         """Return the magnitude (length) of this vector."""
         return float(np.linalg.norm(self._data))
 
+    def to_3d(self) -> Vector3D:
+        """Convert to 3D vector with z=0."""
+        return Vector3D(np.array([self.x, self.y, 0.0], dtype=np.float64))
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}([{self.x}, {self.y}])"
+
+
+@dataclass(frozen=True, slots=True)
+class Vector3D:
+    """Base class for 3D vector physical quantities."""
+    _data: NDArray[np.float64]
+
+    @property
+    def x(self) -> float:
+        return float(self._data[0])
+
+    @property
+    def y(self) -> float:
+        return float(self._data[1])
+
+    @property
+    def z(self) -> float:
+        return float(self._data[2])
+
+    @property
+    def array(self) -> NDArray[np.float64]:
+        """Return underlying numpy array for computation."""
+        return self._data
+
+    def magnitude(self) -> float:
+        """Return the magnitude (length) of this vector."""
+        return float(np.linalg.norm(self._data))
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}([{self.x}, {self.y}, {self.z}])"
 
 
 # ============================================================
@@ -113,18 +147,21 @@ class Energy(Scalar):
 
 
 @dataclass(frozen=True, slots=True)
-class AngularMomentum(Scalar):
-    """Angular momentum in kg·m²/s."""
+class AngularMomentum(Vector3D):
+    """Angular momentum vector in kg·m²/s."""
 
     def __add__(self, other: AngularMomentum) -> AngularMomentum:
         if isinstance(other, AngularMomentum):
-            return AngularMomentum(self.value + other.value)
+            return AngularMomentum(self._data + other._data)
         return NotImplemented
 
     def __radd__(self, other: AngularMomentum) -> AngularMomentum:
         if isinstance(other, AngularMomentum):
-            return AngularMomentum(self.value + other.value)
+            return AngularMomentum(self._data + other._data)
         return NotImplemented
+
+    def __neg__(self) -> AngularMomentum:
+        return AngularMomentum(-self._data)
 
 
 # ============================================================
@@ -162,6 +199,23 @@ class Position(Vector2D):
     def __truediv__(self, scalar: Union[float, int]) -> Position:
         if isinstance(scalar, (int, float)):
             return Position(self._data / scalar)
+        return NotImplemented
+
+    def dot(self, other: Force) -> Energy:
+        """Position · Force = Work (Energy)."""
+        if isinstance(other, Force):
+            return Energy(float(np.dot(self._data, other._data)))
+        return NotImplemented
+
+    def cross(self, other: Momentum) -> AngularMomentum:
+        """Position × Momentum = Angular Momentum."""
+        if isinstance(other, Momentum):
+            # 2D cross product gives z-component only
+            result = np.cross(
+                np.array([self.x, self.y, 0.0]),
+                np.array([other.x, other.y, 0.0])
+            )
+            return AngularMomentum(result)
         return NotImplemented
 
 
@@ -343,9 +397,14 @@ def energy(value: float) -> Energy:
     return Energy(value)
 
 
-def angular_momentum(value: float) -> AngularMomentum:
-    """Create an AngularMomentum from a float value in kg·m²/s."""
-    return AngularMomentum(value)
+def angular_momentum(x: float, y: float, z: float) -> AngularMomentum:
+    """Create an AngularMomentum vector from x, y, z components in kg·m²/s."""
+    return AngularMomentum(np.array([x, y, z], dtype=np.float64))
+
+
+def angular_momentum_z(z: float) -> AngularMomentum:
+    """Create an AngularMomentum with only z-component (for 2D simulations)."""
+    return AngularMomentum(np.array([0.0, 0.0, z], dtype=np.float64))
 
 
 def position(x: float, y: float) -> Position:

@@ -68,7 +68,7 @@ def run_simulation(
     positions = np.zeros((n_steps, 2, 2))
     velocities = np.zeros((n_steps, 2, 2))
     momentum_arr = np.zeros((n_steps, 2))
-    angular_momentum_arr = np.zeros(n_steps)
+    angular_momentum_arr = np.zeros((n_steps, 3))  # 3D vector
     energy_arr = np.zeros(n_steps)
 
     # Initialize
@@ -88,7 +88,7 @@ def run_simulation(
         E = total_energy(state, m1, m2)
 
         momentum_arr[i] = p.array
-        angular_momentum_arr[i] = float(L)
+        angular_momentum_arr[i] = L.array
         energy_arr[i] = float(E)
 
         # Check stability before next step

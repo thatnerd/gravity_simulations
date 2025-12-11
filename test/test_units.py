@@ -102,14 +102,27 @@ class TestEnergy:
 
 
 class TestAngularMomentum:
-    """Tests for AngularMomentum scalar type."""
+    """Tests for AngularMomentum vector type."""
 
     def test_addition(self) -> None:
-        L1 = AngularMomentum(100.0)
-        L2 = AngularMomentum(50.0)
+        L1 = AngularMomentum(np.array([0.0, 0.0, 100.0]))
+        L2 = AngularMomentum(np.array([0.0, 0.0, 50.0]))
         result = L1 + L2
         assert isinstance(result, AngularMomentum)
-        assert float(result) == 150.0
+        assert result.z == 150.0
+
+    def test_properties(self) -> None:
+        L = AngularMomentum(np.array([1.0, 2.0, 3.0]))
+        assert L.x == 1.0
+        assert L.y == 2.0
+        assert L.z == 3.0
+
+    def test_negation(self) -> None:
+        L = AngularMomentum(np.array([1.0, 2.0, 3.0]))
+        neg = -L
+        assert neg.x == -1.0
+        assert neg.y == -2.0
+        assert neg.z == -3.0
 
 
 class TestVector2DBase:
