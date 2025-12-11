@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from script.units import (
-    Scalar, Vector2D,
+    Scalar, Vector2D, Vector3D,
     Mass, Time, Energy, AngularMomentum,
     Position, Velocity, Acceleration, Force, Momentum,
     TwoBodyState,
@@ -146,6 +146,38 @@ class TestVector2DBase:
         v = Vector2D(np.array([1.0, 2.0]))
         assert "Vector2D" in repr(v)
 
+    def test_to_3d(self) -> None:
+        """Test conversion from 2D to 3D vector with z=0."""
+        v = Vector2D(np.array([3.0, 4.0]))
+        v3d = v.to_3d()
+        assert isinstance(v3d, Vector3D)
+        assert v3d.x == 3.0
+        assert v3d.y == 4.0
+        assert v3d.z == 0.0
+
+
+class TestVector3DBase:
+    """Tests for base Vector3D class."""
+
+    def test_properties(self) -> None:
+        v = Vector3D(np.array([1.0, 2.0, 3.0]))
+        assert v.x == 1.0
+        assert v.y == 2.0
+        assert v.z == 3.0
+
+    def test_array_property(self) -> None:
+        arr = np.array([1.0, 2.0, 3.0])
+        v = Vector3D(arr)
+        np.testing.assert_array_equal(v.array, arr)
+
+    def test_magnitude(self) -> None:
+        v = Vector3D(np.array([0.0, 3.0, 4.0]))
+        assert v.magnitude() == 5.0
+
+    def test_repr(self) -> None:
+        v = Vector3D(np.array([1.0, 2.0, 3.0]))
+        assert "Vector3D" in repr(v)
+
 
 class TestPosition:
     """Tests for Position vector type."""
@@ -193,6 +225,41 @@ class TestPosition:
         result = p / 2.0
         assert isinstance(result, Position)
         np.testing.assert_array_equal(result.array, np.array([2.0, 3.0]))
+
+    def test_cross_with_momentum(self) -> None:
+        """Test Position × Momentum = Angular Momentum (L = r × p)."""
+        r = position(3.0, 0.0)  # Position along x-axis
+        p = momentum(0.0, 4.0)  # Momentum along y-axis
+        L = r.cross(p)
+        assert isinstance(L, AngularMomentum)
+        # Cross product: (3,0,0) × (0,4,0) = (0,0,12)
+        assert L.x == 0.0
+        assert L.y == 0.0
+        assert L.z == 12.0
+
+    def test_cross_negative_angular_momentum(self) -> None:
+        """Test cross product for clockwise motion (negative angular momentum)."""
+        r = position(3.0, 0.0)  # Position along x-axis
+        p = momentum(0.0, -4.0)  # Momentum along negative y-axis
+        L = r.cross(p)
+        # Cross product: (3,0,0) × (0,-4,0) = (0,0,-12)
+        assert L.z == -12.0
+
+    def test_dot_with_force(self) -> None:
+        """Test Position · Force = Work (Energy)."""
+        d = position(3.0, 4.0)  # Displacement
+        f = force(2.0, 1.0)  # Force
+        W = d.dot(f)
+        assert isinstance(W, Energy)
+        # Dot product: 3*2 + 4*1 = 10
+        assert float(W) == 10.0
+
+    def test_dot_perpendicular_no_work(self) -> None:
+        """Test that perpendicular force does no work."""
+        d = position(1.0, 0.0)  # Displacement along x
+        f = force(0.0, 5.0)  # Force along y (perpendicular)
+        W = d.dot(f)
+        assert float(W) == 0.0
 
 
 class TestVelocity:

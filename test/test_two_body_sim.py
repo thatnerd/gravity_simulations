@@ -35,16 +35,19 @@ from script.integrator import (
 from script.initial_conditions import (
     generate_circular_orbit,
     generate_random_masses,
+    generate_random_period,
     compute_orbital_parameters,
 )
 from script.io_handler import (
     save_results,
     load_results,
     load_config,
+    NumpyEncoder,
 )
+from script.integrator import compute_accelerations
 from script.simulation import SimulationResult
 from script.units import (
-    Mass, Time, TwoBodyState,
+    Mass, Time, TwoBodyState, Acceleration,
     position, velocity,
 )
 
@@ -262,6 +265,26 @@ class TestIntegrator(unittest.TestCase):
 
         self.assertFalse(check_stability(state, m1, m2))
 
+    def test_compute_accelerations_typed(self) -> None:
+        """Test that compute_accelerations returns typed Acceleration objects."""
+        m1 = Mass(1e10)
+        m2 = Mass(2e10)
+        state = TwoBodyState.from_bodies(
+            position(0.0, 0.0), velocity(0.0, 0.0),
+            position(100.0, 0.0), velocity(0.0, 0.0)
+        )
+
+        a1, a2 = compute_accelerations(state, m1, m2)
+
+        # Check types
+        self.assertIsInstance(a1, Acceleration)
+        self.assertIsInstance(a2, Acceleration)
+
+        # a1 should point toward body 2 (positive x)
+        self.assertGreater(a1.x, 0)
+        # a2 should point toward body 1 (negative x)
+        self.assertLess(a2.x, 0)
+
 
 class TestInitialConditions(unittest.TestCase):
     """Tests for initial_conditions.py functions."""
@@ -274,6 +297,28 @@ class TestInitialConditions(unittest.TestCase):
             self.assertLessEqual(ratio, 10)
             self.assertGreater(float(m1), 0)
             self.assertGreater(float(m2), 0)
+
+    def test_generate_random_masses_range(self) -> None:
+        """Test random masses are within specified min/max range."""
+        m_min = 1e10
+        m_max = 1e11
+        for _ in range(100):
+            m1, m2 = generate_random_masses(m_min=m_min, m_max=m_max)
+            # Masses should be within range (with some tolerance for rounding)
+            self.assertGreaterEqual(float(m1), m_min * 0.99)
+            self.assertLessEqual(float(m1), m_max * 1.01)
+            self.assertGreaterEqual(float(m2), m_min * 0.99)
+            self.assertLessEqual(float(m2), m_max * 1.01)
+
+    def test_generate_random_period(self) -> None:
+        """Test random period is within specified range."""
+        min_period = 2.0
+        max_period = 5.0
+        for _ in range(100):
+            period = generate_random_period(min_period=min_period, max_period=max_period)
+            self.assertGreaterEqual(float(period), min_period)
+            self.assertLessEqual(float(period), max_period)
+            self.assertIsInstance(period, Time)
 
     def test_compute_orbital_parameters(self) -> None:
         """Test orbital parameters give correct period."""
@@ -329,6 +374,30 @@ class TestIOHandler(unittest.TestCase):
         """Set up test output directory."""
         self.test_dir = '/tmp/test_two_body_sim'
         os.makedirs(self.test_dir, exist_ok=True)
+
+    def test_numpy_encoder_array(self) -> None:
+        """Test NumpyEncoder handles numpy arrays."""
+        import json
+        data = {'array': np.array([1.0, 2.0, 3.0])}
+        result = json.dumps(data, cls=NumpyEncoder)
+        loaded = json.loads(result)
+        self.assertEqual(loaded['array'], [1.0, 2.0, 3.0])
+
+    def test_numpy_encoder_float64(self) -> None:
+        """Test NumpyEncoder handles numpy float64."""
+        import json
+        data = {'value': np.float64(3.14159)}
+        result = json.dumps(data, cls=NumpyEncoder)
+        loaded = json.loads(result)
+        self.assertAlmostEqual(loaded['value'], 3.14159, places=5)
+
+    def test_numpy_encoder_int64(self) -> None:
+        """Test NumpyEncoder handles numpy int64."""
+        import json
+        data = {'value': np.int64(42)}
+        result = json.dumps(data, cls=NumpyEncoder)
+        loaded = json.loads(result)
+        self.assertEqual(loaded['value'], 42)
 
     def test_save_load_roundtrip(self) -> None:
         """Test saving and loading results preserves data."""
@@ -412,6 +481,51 @@ class TestTwoBodySimMain(unittest.TestCase):
 
 class TestSimulationIntegration(unittest.TestCase):
     """Integration tests for full simulation."""
+
+    def test_collision_detection(self) -> None:
+        """Test that simulation detects collision and stops early."""
+        from script.simulation import run_simulation
+
+        # Set up bodies very close together - acceleration will exceed threshold
+        # With m=1e20 kg, threshold=1e12 m/s², instability at r < 0.08m
+        m1 = Mass(1e20)
+        m2 = Mass(1e20)
+        # Bodies 0.05m apart - should immediately trigger instability
+        state = TwoBodyState.from_bodies(
+            position(-0.025, 0.0), velocity(0.0, 0.0),
+            position(0.025, 0.0), velocity(0.0, 0.0)
+        )
+
+        result = run_simulation(state, m1, m2, dt=Time(0.0001), t_max=Time(1.0))
+
+        # Should detect collision immediately (first step)
+        self.assertTrue(result.collision)
+        # Should have only 1 step recorded
+        self.assertEqual(len(result.times), 1)
+
+    def test_custom_stability_threshold(self) -> None:
+        """Test run_simulation with custom stability threshold."""
+        from script.simulation import run_simulation
+
+        m1 = Mass(1e12)
+        m2 = Mass(1e12)
+        T = Time(2.0)
+
+        state = generate_circular_orbit(m1, m2, T)
+
+        # Run with very low threshold - should trigger collision detection
+        result_low = run_simulation(
+            state, m1, m2, dt=Time(0.01), t_max=Time(1.0),
+            stability_threshold=1e-10  # Very low, should trigger immediately
+        )
+        self.assertTrue(result_low.collision)
+
+        # Run with normal threshold - should complete without collision
+        result_normal = run_simulation(
+            state, m1, m2, dt=Time(0.01), t_max=Time(1.0),
+            stability_threshold=1e12  # Normal threshold
+        )
+        self.assertFalse(result_normal.collision)
 
     def test_energy_conservation(self) -> None:
         """Test that total energy is conserved during simulation."""
