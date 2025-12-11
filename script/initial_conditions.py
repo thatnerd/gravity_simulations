@@ -14,13 +14,14 @@ from numpy.typing import NDArray
 import random
 
 from script.physics import G
+from script.units import Mass, Time, TwoBodyState, position, velocity
 
 
 def generate_random_masses(
     ratio_max: float = 10.0,
     m_min: float = 1e11,
     m_max: float = 1e13
-) -> tuple[float, float]:
+) -> tuple[Mass, Mass]:
     """
     Generate two random masses with ratio less than ratio_max.
 
@@ -30,30 +31,30 @@ def generate_random_masses(
         m_max: Maximum mass (kg)
 
     Returns:
-        Tuple of (m1, m2) masses in kg
+        Tuple of (m1, m2) Mass objects
     """
     # Generate first mass uniformly in log space
     log_m1 = random.uniform(np.log10(m_min), np.log10(m_max))
-    m1 = 10 ** log_m1
+    m1_val = 10 ** log_m1
 
     # Generate second mass within ratio constraint
     log_ratio = random.uniform(-np.log10(ratio_max), np.log10(ratio_max))
-    m2 = m1 * (10 ** log_ratio)
+    m2_val = m1_val * (10 ** log_ratio)
 
     # Clamp to valid range
-    m2 = max(m_min, min(m_max, m2))
+    m2_val = max(m_min, min(m_max, m2_val))
 
     # Round to 5 significant figures (matching precision of G)
-    m1 = float(f"{m1:.4e}")
-    m2 = float(f"{m2:.4e}")
+    m1_val = float(f"{m1_val:.4e}")
+    m2_val = float(f"{m2_val:.4e}")
 
-    return m1, m2
+    return Mass(m1_val), Mass(m2_val)
 
 
 def compute_orbital_parameters(
-    m1: float,
-    m2: float,
-    period: float
+    m1: Mass,
+    m2: Mass,
+    period: Time
 ) -> tuple[float, float, float]:
     """
     Compute orbital parameters for circular orbit with given period.
@@ -62,25 +63,26 @@ def compute_orbital_parameters(
     then computes velocities for circular orbit.
 
     Args:
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
-        period: Orbital period (s)
+        m1: Mass of body 1
+        m2: Mass of body 2
+        period: Orbital period
 
     Returns:
         Tuple of (separation, v1_magnitude, v2_magnitude)
         where separation is distance between bodies (m)
         and v1, v2 are orbital speeds (m/s)
     """
-    M = m1 + m2
-    omega = 2 * np.pi / period
+    M = float(m1) + float(m2)
+    T = float(period)
+    omega = 2 * np.pi / T
 
     # Kepler's third law: T² = (4π²/GM) * r³
     # Solving for r: r = (GM * T² / 4π²)^(1/3)
-    r = (G * M * period**2 / (4 * np.pi**2)) ** (1/3)
+    r = (G * M * T**2 / (4 * np.pi**2)) ** (1/3)
 
     # Distance from center of mass
-    r1 = r * m2 / M
-    r2 = r * m1 / M
+    r1 = r * float(m2) / M
+    r2 = r * float(m1) / M
 
     # Orbital velocities (v = ω * r)
     v1 = omega * r1
@@ -90,10 +92,10 @@ def compute_orbital_parameters(
 
 
 def generate_circular_orbit(
-    m1: float,
-    m2: float,
-    period: float
-) -> NDArray[np.float64]:
+    m1: Mass,
+    m2: Mass,
+    period: Time
+) -> TwoBodyState:
     """
     Generate initial state for circular orbit with zero total momentum.
 
@@ -103,33 +105,33 @@ def generate_circular_orbit(
     Center of mass is at origin.
 
     Args:
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
-        period: Orbital period (s)
+        m1: Mass of body 1
+        m2: Mass of body 2
+        period: Orbital period
 
     Returns:
-        State array of shape (2, 2, 2) - [body, pos/vel, x/y]
+        TwoBodyState for the initial configuration
     """
-    M = m1 + m2
-    r, v1, v2 = compute_orbital_parameters(m1, m2, period)
+    M = float(m1) + float(m2)
+    r, v1_mag, v2_mag = compute_orbital_parameters(m1, m2, period)
 
     # Distances from center of mass
-    r1 = r * m2 / M
-    r2 = r * m1 / M
+    r1 = r * float(m2) / M
+    r2 = r * float(m1) / M
 
-    # Create state array
-    state = np.array([
-        [[r1, 0.0], [0.0, v1]],     # body 1: +x position, +y velocity
-        [[-r2, 0.0], [0.0, -v2]]    # body 2: -x position, -y velocity
-    ])
+    # Create typed positions and velocities
+    pos1 = position(r1, 0.0)
+    vel1 = velocity(0.0, v1_mag)
+    pos2 = position(-r2, 0.0)
+    vel2 = velocity(0.0, -v2_mag)
 
-    return state
+    return TwoBodyState.from_bodies(pos1, vel1, pos2, vel2)
 
 
 def generate_random_period(
     min_period: float = 1.0,
     max_period: float = 4.0
-) -> float:
+) -> Time:
     """
     Generate random orbital period in given range.
 
@@ -138,9 +140,9 @@ def generate_random_period(
         max_period: Maximum period (s)
 
     Returns:
-        Random period (s)
+        Random period as Time object
     """
-    return random.uniform(min_period, max_period)
+    return Time(random.uniform(min_period, max_period))
 
 
 def main() -> None:
@@ -150,12 +152,12 @@ def main() -> None:
     m1, m2 = generate_random_masses()
     period = generate_random_period()
 
-    print(f"Random masses: m1 = {m1:.3e} kg, m2 = {m2:.3e} kg")
-    print(f"Mass ratio: {max(m1, m2) / min(m1, m2):.2f}")
-    print(f"Random period: {period:.3f} s")
+    print(f"Random masses: m1 = {float(m1):.3e} kg, m2 = {float(m2):.3e} kg")
+    print(f"Mass ratio: {max(float(m1), float(m2)) / min(float(m1), float(m2)):.2f}")
+    print(f"Random period: {float(period):.3f} s")
 
     state = generate_circular_orbit(m1, m2, period)
-    print(f"Initial state shape: {state.shape}")
+    print(f"Initial state shape: {state.array.shape}")
 
 
 if __name__ == '__main__':

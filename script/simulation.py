@@ -13,12 +13,13 @@ from numpy.typing import NDArray
 from dataclasses import dataclass
 from typing import Optional
 
+from script.units import Mass, Time, TwoBodyState
 from script.physics import (
     total_momentum,
     angular_momentum,
     total_energy,
 )
-from script.integrator import rk4_step, check_stability
+from script.integrator import rk4_step, check_stability, STABILITY_THRESHOLD
 
 
 @dataclass
@@ -35,31 +36,32 @@ class SimulationResult:
 
 
 def run_simulation(
-    initial_state: NDArray[np.float64],
-    m1: float,
-    m2: float,
-    dt: float = 0.01,
-    t_max: float = 100.0,
+    initial_state: TwoBodyState,
+    m1: Mass,
+    m2: Mass,
+    dt: Time,
+    t_max: Time,
     stability_threshold: Optional[float] = None
 ) -> SimulationResult:
     """
     Run the two-body gravitational simulation.
 
     Args:
-        initial_state: Initial state array of shape (2, 2, 2)
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
-        dt: Time step (s)
-        t_max: Maximum simulation time (s)
+        initial_state: Initial two-body state
+        m1: Mass of body 1
+        m2: Mass of body 2
+        dt: Time step
+        t_max: Maximum simulation time
         stability_threshold: Custom stability threshold (m/s²), or None for default
 
     Returns:
         SimulationResult containing all recorded data
     """
-    from script.integrator import STABILITY_THRESHOLD
     threshold = stability_threshold if stability_threshold is not None else STABILITY_THRESHOLD
 
-    n_steps = int(t_max / dt) + 1
+    dt_val = float(dt)
+    t_max_val = float(t_max)
+    n_steps = int(t_max_val / dt_val) + 1
 
     # Pre-allocate arrays
     times = np.zeros(n_steps)
@@ -75,13 +77,19 @@ def run_simulation(
     actual_steps = n_steps
 
     for i in range(n_steps):
-        t = i * dt
+        t = i * dt_val
         times[i] = t
-        positions[i] = state[:, 0]
-        velocities[i] = state[:, 1]
-        momentum_arr[i] = total_momentum(state, m1, m2)
-        angular_momentum_arr[i] = angular_momentum(state, m1, m2)
-        energy_arr[i] = total_energy(state, m1, m2)
+        positions[i] = state.array[:, 0]
+        velocities[i] = state.array[:, 1]
+
+        # Compute conserved quantities
+        p = total_momentum(state, m1, m2)
+        L = angular_momentum(state, m1, m2)
+        E = total_energy(state, m1, m2)
+
+        momentum_arr[i] = p.array
+        angular_momentum_arr[i] = float(L)
+        energy_arr[i] = float(E)
 
         # Check stability before next step
         if not check_stability(state, m1, m2, threshold):
@@ -103,10 +111,10 @@ def run_simulation(
         energy_arr = energy_arr[:actual_steps]
 
     metadata = {
-        'm1': m1,
-        'm2': m2,
-        'dt': dt,
-        't_max': t_max,
+        'm1': float(m1),
+        'm2': float(m2),
+        'dt': dt_val,
+        't_max': t_max_val,
         'n_steps': actual_steps,
         'stability_threshold': threshold,
     }

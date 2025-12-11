@@ -5,6 +5,8 @@ Physics calculations for two-body gravitational simulation.
 This module provides functions for computing gravitational forces,
 accelerations, and conserved quantities (energy, momentum, angular momentum).
 
+All functions use typed physical quantities from the units module.
+
 Usage:
     from script.physics import gravitational_force, total_energy
 """
@@ -12,53 +14,59 @@ Usage:
 import numpy as np
 from numpy.typing import NDArray
 
+from script.units import (
+    Mass, Energy, AngularMomentum as AngularMomentumType,
+    Position, Velocity, Acceleration, Force, Momentum,
+    TwoBodyState,
+)
+
 # Gravitational constant in SI units: m³/(kg·s²)
-G: float = 6.67430e-11
+G: float = 6.6743e-11
 
 
 def gravitational_force(
-    m1: float,
-    m2: float,
-    r1: NDArray[np.float64],
-    r2: NDArray[np.float64]
-) -> NDArray[np.float64]:
+    m1: Mass,
+    m2: Mass,
+    r1: Position,
+    r2: Position
+) -> Force:
     """
     Compute gravitational force on body 1 due to body 2.
 
     Args:
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
-        r1: Position vector of body 1 (m)
-        r2: Position vector of body 2 (m)
+        m1: Mass of body 1
+        m2: Mass of body 2
+        r1: Position of body 1
+        r2: Position of body 2
 
     Returns:
-        Force vector on body 1 (N)
+        Force on body 1 (directed toward body 2)
     """
-    r_vec = r2 - r1
+    r_vec = r2.array - r1.array
     r_mag = np.linalg.norm(r_vec)
     r_hat = r_vec / r_mag
-    force_mag = G * m1 * m2 / (r_mag ** 2)
-    return force_mag * r_hat
+    force_mag = G * float(m1) * float(m2) / (r_mag ** 2)
+    return Force(force_mag * r_hat)
 
 
 def compute_accelerations(
-    state: NDArray[np.float64],
-    m1: float,
-    m2: float
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    state: TwoBodyState,
+    m1: Mass,
+    m2: Mass
+) -> tuple[Acceleration, Acceleration]:
     """
     Compute acceleration vectors for both bodies.
 
     Args:
-        state: State array of shape (2, 2, 2) - [body, pos/vel, x/y]
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
+        state: Two-body state containing positions and velocities
+        m1: Mass of body 1
+        m2: Mass of body 2
 
     Returns:
-        Tuple of (a1, a2) acceleration vectors
+        Tuple of (a1, a2) typed acceleration vectors
     """
-    r1 = state[0, 0]
-    r2 = state[1, 0]
+    r1 = state.position(0)
+    r2 = state.position(1)
 
     f1 = gravitational_force(m1, m2, r1, r2)
     a1 = f1 / m1
@@ -68,118 +76,118 @@ def compute_accelerations(
 
 
 def total_momentum(
-    state: NDArray[np.float64],
-    m1: float,
-    m2: float
-) -> NDArray[np.float64]:
+    state: TwoBodyState,
+    m1: Mass,
+    m2: Mass
+) -> Momentum:
     """
     Compute total momentum of the two-body system.
 
     Args:
-        state: State array of shape (2, 2, 2) - [body, pos/vel, x/y]
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
+        state: Two-body state containing positions and velocities
+        m1: Mass of body 1
+        m2: Mass of body 2
 
     Returns:
-        Total momentum vector (kg·m/s)
+        Total momentum vector
     """
-    v1 = state[0, 1]
-    v2 = state[1, 1]
+    v1 = state.velocity(0)
+    v2 = state.velocity(1)
     return m1 * v1 + m2 * v2
 
 
 def angular_momentum(
-    state: NDArray[np.float64],
-    m1: float,
-    m2: float
-) -> float:
+    state: TwoBodyState,
+    m1: Mass,
+    m2: Mass
+) -> AngularMomentumType:
     """
     Compute total angular momentum of the system about the origin.
 
     In 2D, angular momentum is a scalar (z-component of r × p).
 
     Args:
-        state: State array of shape (2, 2, 2) - [body, pos/vel, x/y]
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
+        state: Two-body state containing positions and velocities
+        m1: Mass of body 1
+        m2: Mass of body 2
 
     Returns:
-        Total angular momentum (kg·m²/s), positive for counter-clockwise
+        Total angular momentum (positive for counter-clockwise)
     """
-    r1, v1 = state[0, 0], state[0, 1]
-    r2, v2 = state[1, 0], state[1, 1]
+    r1, v1 = state.position(0), state.velocity(0)
+    r2, v2 = state.position(1), state.velocity(1)
 
     # L = r × p = r × (m*v) = m * (r × v)
     # In 2D: r × v = rx*vy - ry*vx
-    L1 = m1 * (r1[0] * v1[1] - r1[1] * v1[0])
-    L2 = m2 * (r2[0] * v2[1] - r2[1] * v2[0])
+    L1 = float(m1) * (r1.x * v1.y - r1.y * v1.x)
+    L2 = float(m2) * (r2.x * v2.y - r2.y * v2.x)
 
-    return L1 + L2
+    return AngularMomentumType(L1 + L2)
 
 
 def kinetic_energy(
-    state: NDArray[np.float64],
-    m1: float,
-    m2: float
-) -> float:
+    state: TwoBodyState,
+    m1: Mass,
+    m2: Mass
+) -> Energy:
     """
     Compute total kinetic energy of the system.
 
     Args:
-        state: State array of shape (2, 2, 2) - [body, pos/vel, x/y]
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
+        state: Two-body state containing positions and velocities
+        m1: Mass of body 1
+        m2: Mass of body 2
 
     Returns:
-        Total kinetic energy (J)
+        Total kinetic energy
     """
-    v1 = state[0, 1]
-    v2 = state[1, 1]
+    v1 = state.velocity(0)
+    v2 = state.velocity(1)
 
-    KE1 = 0.5 * m1 * np.dot(v1, v1)
-    KE2 = 0.5 * m2 * np.dot(v2, v2)
+    KE1 = 0.5 * float(m1) * np.dot(v1.array, v1.array)
+    KE2 = 0.5 * float(m2) * np.dot(v2.array, v2.array)
 
-    return KE1 + KE2
+    return Energy(KE1 + KE2)
 
 
 def potential_energy(
-    state: NDArray[np.float64],
-    m1: float,
-    m2: float
-) -> float:
+    state: TwoBodyState,
+    m1: Mass,
+    m2: Mass
+) -> Energy:
     """
     Compute gravitational potential energy of the system.
 
     Args:
-        state: State array of shape (2, 2, 2) - [body, pos/vel, x/y]
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
+        state: Two-body state containing positions and velocities
+        m1: Mass of body 1
+        m2: Mass of body 2
 
     Returns:
-        Gravitational potential energy (J), always negative
+        Gravitational potential energy (always negative)
     """
-    r1 = state[0, 0]
-    r2 = state[1, 0]
-    r = np.linalg.norm(r2 - r1)
+    r1 = state.position(0)
+    r2 = state.position(1)
+    r = np.linalg.norm(r2.array - r1.array)
 
-    return -G * m1 * m2 / r
+    return Energy(-G * float(m1) * float(m2) / r)
 
 
 def total_energy(
-    state: NDArray[np.float64],
-    m1: float,
-    m2: float
-) -> float:
+    state: TwoBodyState,
+    m1: Mass,
+    m2: Mass
+) -> Energy:
     """
     Compute total mechanical energy of the system.
 
     Args:
-        state: State array of shape (2, 2, 2) - [body, pos/vel, x/y]
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
+        state: Two-body state containing positions and velocities
+        m1: Mass of body 1
+        m2: Mass of body 2
 
     Returns:
-        Total energy (J)
+        Total energy (kinetic + potential)
     """
     return kinetic_energy(state, m1, m2) + potential_energy(state, m1, m2)
 

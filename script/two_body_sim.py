@@ -51,12 +51,14 @@ import sys
 import os
 import random
 
+import numpy as np
 from docopt import docopt
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from script.physics import G
+from script.units import Mass, Time
 from script.initial_conditions import (
     generate_circular_orbit,
     generate_random_masses,
@@ -104,9 +106,9 @@ def main() -> None:
     # Handle config file
     if args['--config']:
         config = load_config(args['--config'])
-        m1 = config.get('m1')
-        m2 = config.get('m2')
-        period = config.get('period')
+        m1_val = config.get('m1')
+        m2_val = config.get('m2')
+        period_val = config.get('period')
         duration = config.get('duration', 100.0)
         dt = config.get('dt', 0.01)
         output = config.get('output', 'output/simulation.json')
@@ -116,9 +118,9 @@ def main() -> None:
         seed = config.get('seed')
     else:
         # Parse command line arguments
-        m1 = parse_mass(args['--m1']) if args['--m1'] else None
-        m2 = parse_mass(args['--m2']) if args['--m2'] else None
-        period = parse_period(args['--period']) if args['--period'] else None
+        m1_val = parse_mass(args['--m1']) if args['--m1'] else None
+        m2_val = parse_mass(args['--m2']) if args['--m2'] else None
+        period_val = parse_period(args['--period']) if args['--period'] else None
         duration = float(args['--duration'])
         dt = float(args['--dt'])
         output = args['--output']
@@ -133,22 +135,31 @@ def main() -> None:
         print(f"Random seed: {seed}")
 
     # Generate random values if needed
-    if m1 is None or m2 is None:
+    if m1_val is None or m2_val is None:
         m1_gen, m2_gen = generate_random_masses()
-        m1 = m1 if m1 is not None else m1_gen
-        m2 = m2 if m2 is not None else m2_gen
+        m1 = Mass(m1_val) if m1_val is not None else m1_gen
+        m2 = Mass(m2_val) if m2_val is not None else m2_gen
+    else:
+        m1 = Mass(m1_val)
+        m2 = Mass(m2_val)
 
-    if period is None:
+    if period_val is None:
         period = generate_random_period()
+    else:
+        period = Time(period_val)
 
     # Print simulation parameters
+    m1_f = float(m1)
+    m2_f = float(m2)
+    period_f = float(period)
+
     print("=" * 60)
     print("Two-Body Gravitational Simulation")
     print("=" * 60)
-    print(f"Mass 1:          {m1:.3e} kg")
-    print(f"Mass 2:          {m2:.3e} kg")
-    print(f"Mass ratio:      {max(m1, m2) / min(m1, m2):.2f}")
-    print(f"Orbital period:  {period:.3f} s")
+    print(f"Mass 1:          {m1_f:.3e} kg")
+    print(f"Mass 2:          {m2_f:.3e} kg")
+    print(f"Mass ratio:      {max(m1_f, m2_f) / min(m1_f, m2_f):.2f}")
+    print(f"Orbital period:  {period_f:.3f} s")
     print(f"Duration:        {duration:.1f} s")
     print(f"Time step:       {dt} s")
     print(f"Expected steps:  {int(duration / dt) + 1}")
@@ -159,17 +170,19 @@ def main() -> None:
     print("\nGenerating initial conditions...")
     initial_state = generate_circular_orbit(m1, m2, period)
 
-    r1 = initial_state[0, 0]
-    r2 = initial_state[1, 0]
-    separation = float(((r2 - r1) ** 2).sum() ** 0.5)
+    r1 = initial_state.position(0).array
+    r2 = initial_state.position(1).array
+    separation = float(np.linalg.norm(r2 - r1))
     print(f"Initial separation: {separation:.3e} m")
 
     # Run simulation
     print("\nRunning simulation...")
-    result = run_simulation(initial_state, m1, m2, dt=dt, t_max=duration)
+    dt_time = Time(dt)
+    t_max_time = Time(duration)
+    result = run_simulation(initial_state, m1, m2, dt=dt_time, t_max=t_max_time)
 
     # Add extra metadata
-    result.metadata['period'] = period
+    result.metadata['period'] = period_f
     result.metadata['initial_separation'] = separation
     result.metadata['G'] = G
 
