@@ -89,7 +89,7 @@ def main() -> None:
     if args['--playback']:
         result = load_results(args['--playback'])
         print(f"Loaded simulation: {result.metadata['n_steps']} steps")
-        print(f"Masses: m1 = {result.metadata['m1']:.4e} kg, m2 = {result.metadata['m2']:.4e} kg")
+        print(f"Masses: m1 = {result.metadata['m1']:.3e} kg, m2 = {result.metadata['m2']:.3e} kg")
         print(f"Time range: 0 to {result.times[-1]:.2f} s")
 
         if result.collision:
@@ -145,8 +145,8 @@ def main() -> None:
     print("=" * 60)
     print("Two-Body Gravitational Simulation")
     print("=" * 60)
-    print(f"Mass 1:          {m1:.4e} kg")
-    print(f"Mass 2:          {m2:.4e} kg")
+    print(f"Mass 1:          {m1:.3e} kg")
+    print(f"Mass 2:          {m2:.3e} kg")
     print(f"Mass ratio:      {max(m1, m2) / min(m1, m2):.2f}")
     print(f"Orbital period:  {period:.3f} s")
     print(f"Duration:        {duration:.1f} s")

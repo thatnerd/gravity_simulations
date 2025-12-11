@@ -138,7 +138,7 @@ def animate_simulation(
     m1 = result.metadata['m1']
     m2 = result.metadata['m2']
     ax.set_title(
-        f'Two-Body Gravitational Simulation\nm₁ = {m1:.4e} kg, m₂ = {m2:.4e} kg',
+        f'Two-Body Gravitational Simulation\nm₁ = {m1:.2e} kg, m₂ = {m2:.2e} kg',
         color='white', fontsize=12
     )
 

@@ -43,6 +43,10 @@ def generate_random_masses(
     # Clamp to valid range
     m2 = max(m_min, min(m_max, m2))
 
+    # Round to 5 significant figures (matching precision of G)
+    m1 = float(f"{m1:.4e}")
+    m2 = float(f"{m2:.4e}")
+
     return m1, m2
 
 
@@ -146,7 +150,7 @@ def main() -> None:
     m1, m2 = generate_random_masses()
     period = generate_random_period()
 
-    print(f"Random masses: m1 = {m1:.4e} kg, m2 = {m2:.4e} kg")
+    print(f"Random masses: m1 = {m1:.3e} kg, m2 = {m2:.3e} kg")
     print(f"Mass ratio: {max(m1, m2) / min(m1, m2):.2f}")
     print(f"Random period: {period:.3f} s")
 
