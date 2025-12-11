@@ -13,26 +13,96 @@
   - After writing functions, run relevant tests and confirm they run correctly
   - Run the full test suite after any changes
 
-# Project: TBD
+# Project: Two-Body Gravitational Simulation
 
 ## Project Description
-TBD
+A 2D gravitational simulation of two bodies orbiting their common center of mass. Uses RK4 numerical integration with SI units. Records orbital data to JSON and provides matplotlib visualization with playback controls.
 
 ## Tech Stack
-TBD
+- Python 3
+- NumPy (numerical computation)
+- Matplotlib (visualization/animation)
+- docopt (CLI argument parsing)
+- pytest (testing)
+
+## Dependencies to Install
+```bash
+pip install numpy matplotlib docopt pytest
+```
 
 ## Code Conventions
-TBD
+- Type hints on all functions
+- Docstrings with Args/Returns documentation
+- State vector shape: `(2, 2, 2)` = `[body_index, position_or_velocity, x_or_y]`
+- SI units throughout (kg, m, s, J)
 
 ## Project Structure
-TBD
+```
+gravity_simulations/
+├── script/
+│   ├── __init__.py
+│   ├── physics.py           # Force, energy, momentum calculations
+│   ├── integrator.py        # RK4 stepper, stability check
+│   ├── initial_conditions.py # Circular orbit generation
+│   ├── simulation.py        # Main loop, SimulationResult dataclass
+│   ├── io_handler.py        # JSON save/load
+│   ├── visualizer.py        # Matplotlib animation
+│   └── two_body_sim.py      # Main CLI entry point
+├── test/
+│   ├── test_two_body_sim.py # Unit & integration tests
+│   └── (old test files)     # Legacy, can be ignored
+├── config/
+│   └── example_config.json  # Sample configuration
+├── doc/
+│   └── two_body_architecture.md # Design document
+├── output/                  # Simulation output files (gitignored)
+├── .gitignore
+├── CLAUDE.md
+└── README.md
+```
 
-## Important Notes
-TBD
+## Usage
+```bash
+# Run with random parameters
+python3 script/two_body_sim.py
+
+# Run with specific masses and period
+python3 script/two_body_sim.py --m1 1e12 --m2 2e12 --period 2.5
+
+# Load from config file
+python3 script/two_body_sim.py --config config/example_config.json
+
+# Headless mode (no animation)
+python3 script/two_body_sim.py --no-animate --output output/my_sim.json
+
+# Playback saved results
+python3 script/two_body_sim.py --playback output/simulation.json --speed 10
+
+# Save animation to video
+python3 script/two_body_sim.py --playback output/simulation.json --save-video output/sim.mp4
+```
+
+## Current Status
+- All modules implemented and committed
+- Tests written but NOT YET RUN (Python not available in dev environment)
+- Visualization untested (requires display or video export)
+
+## Next Steps
+1. Install Python dependencies: `pip install numpy matplotlib docopt pytest`
+2. Run the test suite: `python3 -m pytest test/test_two_body_sim.py -v`
+3. Fix any test failures
+4. Run a simulation: `python3 script/two_body_sim.py --no-animate`
+5. Test visualization (if display available) or export to video
+6. Verify conservation laws (energy, angular momentum) in output
 
 ## Known Issues
-TBD
+- Tests have not been run yet - may contain bugs
+- Visualization requires either a display or video export (headless VM limitation)
+- Old test files in test/ directory are from previous project version
 
 ## Future Plans
-TBD
+- Add elliptical orbit support (specify eccentricity)
+- Add 3-body simulation
+- Add real-time energy/momentum plots alongside animation
+- Performance optimization for longer simulations
 
