@@ -34,6 +34,8 @@ def save_results(result: SimulationResult, filepath: str) -> None:
     """
     Save simulation results to JSON file.
 
+    Data is stored per-timestep for easy inspection of state at any point in time.
+
     Args:
         result: SimulationResult to save
         filepath: Output file path
@@ -41,15 +43,29 @@ def save_results(result: SimulationResult, filepath: str) -> None:
     # Ensure directory exists
     os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else '.', exist_ok=True)
 
+    # Build timestep records
+    timesteps = []
+    n_steps = len(result.times)
+    for i in range(n_steps):
+        timesteps.append({
+            'time': result.times[i],
+            'positions': {
+                'body1': {'x': result.positions[i, 0, 0], 'y': result.positions[i, 0, 1]},
+                'body2': {'x': result.positions[i, 1, 0], 'y': result.positions[i, 1, 1]},
+            },
+            'velocities': {
+                'body1': {'x': result.velocities[i, 0, 0], 'y': result.velocities[i, 0, 1]},
+                'body2': {'x': result.velocities[i, 1, 0], 'y': result.velocities[i, 1, 1]},
+            },
+            'momentum': {'x': result.momentum[i, 0], 'y': result.momentum[i, 1]},
+            'angular_momentum': result.angular_momentum[i],
+            'energy': result.energy[i],
+        })
+
     data = {
         'metadata': result.metadata,
-        'times': result.times,
-        'positions': result.positions,
-        'velocities': result.velocities,
-        'momentum': result.momentum,
-        'angular_momentum': result.angular_momentum,
-        'energy': result.energy,
         'collision': result.collision,
+        'timesteps': timesteps,
     }
 
     with open(filepath, 'w') as f:
@@ -69,14 +85,39 @@ def load_results(filepath: str) -> SimulationResult:
     with open(filepath, 'r') as f:
         data = json.load(f)
 
+    timesteps = data['timesteps']
+    n_steps = len(timesteps)
+
+    times = np.zeros(n_steps)
+    positions = np.zeros((n_steps, 2, 2))
+    velocities = np.zeros((n_steps, 2, 2))
+    momentum = np.zeros((n_steps, 2))
+    angular_momentum = np.zeros(n_steps)
+    energy = np.zeros(n_steps)
+
+    for i, ts in enumerate(timesteps):
+        times[i] = ts['time']
+        positions[i, 0, 0] = ts['positions']['body1']['x']
+        positions[i, 0, 1] = ts['positions']['body1']['y']
+        positions[i, 1, 0] = ts['positions']['body2']['x']
+        positions[i, 1, 1] = ts['positions']['body2']['y']
+        velocities[i, 0, 0] = ts['velocities']['body1']['x']
+        velocities[i, 0, 1] = ts['velocities']['body1']['y']
+        velocities[i, 1, 0] = ts['velocities']['body2']['x']
+        velocities[i, 1, 1] = ts['velocities']['body2']['y']
+        momentum[i, 0] = ts['momentum']['x']
+        momentum[i, 1] = ts['momentum']['y']
+        angular_momentum[i] = ts['angular_momentum']
+        energy[i] = ts['energy']
+
     return SimulationResult(
         metadata=data['metadata'],
-        times=np.array(data['times']),
-        positions=np.array(data['positions']),
-        velocities=np.array(data['velocities']),
-        momentum=np.array(data['momentum']),
-        angular_momentum=np.array(data['angular_momentum']),
-        energy=np.array(data['energy']),
+        times=times,
+        positions=positions,
+        velocities=velocities,
+        momentum=momentum,
+        angular_momentum=angular_momentum,
+        energy=energy,
         collision=data['collision'],
     )
 
