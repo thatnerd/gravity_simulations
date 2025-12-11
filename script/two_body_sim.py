@@ -197,8 +197,9 @@ def main() -> None:
     dE_rel = abs(E_final - E0) / abs(E0)
     print(f"Energy conservation: ΔE/E₀ = {dE_rel:.2e}")
 
-    L0 = result.angular_momentum[0]
-    L_final = result.angular_momentum[-1]
+    # Angular momentum is a 3D vector; use magnitude for conservation check
+    L0 = np.linalg.norm(result.angular_momentum[0])
+    L_final = np.linalg.norm(result.angular_momentum[-1])
     dL_rel = abs(L_final - L0) / abs(L0)
     print(f"Angular momentum conservation: ΔL/L₀ = {dL_rel:.2e}")
 

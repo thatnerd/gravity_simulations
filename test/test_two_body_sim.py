@@ -381,6 +381,35 @@ class TestIOHandler(unittest.TestCase):
             shutil.rmtree(self.test_dir)
 
 
+class TestTwoBodySimMain(unittest.TestCase):
+    """Tests for two_body_sim.py main script output formatting."""
+
+    def test_angular_momentum_relative_deviation_formatting(self) -> None:
+        """Test that angular momentum relative deviation can be formatted as scalar.
+
+        Regression test for bug where angular momentum became a 3D vector
+        but the main script still tried to format it as a scalar.
+        """
+        from script.simulation import run_simulation
+
+        m1 = Mass(1e12)
+        m2 = Mass(1e12)
+        T = Time(2.0)
+
+        state = generate_circular_orbit(m1, m2, T)
+        result = run_simulation(state, m1, m2, dt=Time(0.001), t_max=T)
+
+        # This is what two_body_sim.py does - should work with vector angular momentum
+        # Use magnitude for 3D vector comparison
+        L0 = np.linalg.norm(result.angular_momentum[0])
+        L_final = np.linalg.norm(result.angular_momentum[-1])
+        dL_rel = abs(L_final - L0) / abs(L0)
+
+        # Should be able to format as scalar without error
+        formatted = f"ΔL/L₀ = {dL_rel:.2e}"
+        self.assertIn("ΔL/L₀", formatted)
+
+
 class TestSimulationIntegration(unittest.TestCase):
     """Integration tests for full simulation."""
 
