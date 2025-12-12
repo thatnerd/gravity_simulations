@@ -21,7 +21,7 @@ from script.physics import (
     kinetic_energy,
     potential_energy,
 )
-from script.integrator import rk4_step, check_stability, STABILITY_THRESHOLD
+from script.integrator import integrate_step, check_stability, STABILITY_THRESHOLD, IntegratorType
 
 
 @dataclass
@@ -70,7 +70,8 @@ def run_simulation(
     bodies: list[Body],
     dt: Time,
     t_max: Time,
-    stability_threshold: Optional[float] = None
+    stability_threshold: Optional[float] = None,
+    integrator: IntegratorType = 'yoshida'
 ) -> SimulationResult:
     """
     Run the gravitational simulation.
@@ -80,6 +81,7 @@ def run_simulation(
         dt: Time step
         t_max: Maximum simulation time
         stability_threshold: Custom stability threshold (m/s²), or None for default
+        integrator: Integration method ('yoshida' or 'rk4')
 
     Returns:
         SimulationResult containing all recorded data
@@ -126,7 +128,7 @@ def run_simulation(
 
         # Advance state (except on last iteration)
         if i < n_steps - 1:
-            current_bodies = rk4_step(current_bodies, dt)
+            current_bodies = integrate_step(current_bodies, dt, integrator)
 
     # Trim arrays if collision occurred
     if collision:
@@ -149,6 +151,7 @@ def run_simulation(
         't_max': t_max_val,
         'n_steps': actual_steps,
         'stability_threshold': threshold,
+        'integrator': integrator,
     }
 
     return SimulationResult(

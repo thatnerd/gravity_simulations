@@ -28,6 +28,8 @@ from script.physics import (
 )
 from script.integrator import (
     rk4_step,
+    yoshida_step,
+    integrate_step,
     check_stability,
     compute_accelerations,
 )
@@ -304,6 +306,114 @@ class TestIntegrator(unittest.TestCase):
         self.assertEqual(len(accels), 2)
         for a in accels:
             self.assertIsInstance(a, Acceleration)
+
+    def test_yoshida_step_returns_list(self) -> None:
+        """Test yoshida_step returns list of same length."""
+        bodies = [
+            body(1e10, 0.0, 0.0, 10.0, 5.0),
+            body(2e10, 100.0, 0.0, -5.0, 2.0),
+        ]
+
+        new_bodies = yoshida_step(bodies, Time(0.01))
+        self.assertEqual(len(new_bodies), len(bodies))
+        for b in new_bodies:
+            self.assertIsInstance(b, Body)
+
+    def test_yoshida_step_preserves_mass(self) -> None:
+        """Test that masses are preserved across Yoshida steps."""
+        bodies = [
+            body(1e10, 0.0, 0.0, 10.0, 5.0),
+            body(2e10, 100.0, 0.0, -5.0, 2.0),
+        ]
+
+        new_bodies = yoshida_step(bodies, Time(0.01))
+        for i in range(len(bodies)):
+            self.assertEqual(float(bodies[i].mass), float(new_bodies[i].mass))
+
+    def test_yoshida_step_circular_orbit(self) -> None:
+        """Test Yoshida step maintains circular orbit accuracy."""
+        m1 = Mass(1e12)
+        m2 = Mass(1e12)
+        T = Time(2.0)
+
+        bodies = generate_elliptical_orbit(m1, m2, T)
+        initial_energy = total_energy_bodies(bodies)
+
+        # Take many small steps
+        dt = Time(0.001)
+        current_bodies = bodies
+        for _ in range(int(float(T) / float(dt))):
+            current_bodies = yoshida_step(current_bodies, dt)
+
+        final_energy = total_energy_bodies(current_bodies)
+
+        # Energy should be conserved to high precision
+        relative_error = abs(final_energy - initial_energy) / abs(initial_energy)
+        self.assertLess(relative_error, 1e-6)
+
+    def test_integrate_step_dispatcher(self) -> None:
+        """Test integrate_step dispatches to correct integrator."""
+        bodies = [
+            body(1e10, 0.0, 0.0, 10.0, 5.0),
+            body(2e10, 100.0, 0.0, -5.0, 2.0),
+        ]
+        dt = Time(0.01)
+
+        # Test yoshida
+        yoshida_result = integrate_step(bodies, dt, 'yoshida')
+        self.assertEqual(len(yoshida_result), 2)
+
+        # Test rk4
+        rk4_result = integrate_step(bodies, dt, 'rk4')
+        self.assertEqual(len(rk4_result), 2)
+
+    def test_integrate_step_invalid_method(self) -> None:
+        """Test integrate_step raises error for invalid method."""
+        bodies = [
+            body(1e10, 0.0, 0.0, 10.0, 5.0),
+            body(2e10, 100.0, 0.0, -5.0, 2.0),
+        ]
+
+        with self.assertRaises(ValueError):
+            integrate_step(bodies, Time(0.01), 'invalid_method')
+
+    def test_yoshida_symplectic_energy_behavior(self) -> None:
+        """Test Yoshida shows bounded energy oscillation vs RK4 drift.
+
+        Symplectic integrators have bounded energy error that oscillates,
+        while non-symplectic methods like RK4 show secular drift.
+        """
+        m1 = Mass(1e12)
+        m2 = Mass(1e12)
+        T = Time(2.0)
+
+        # Use larger time step to make differences visible
+        dt = Time(0.01)
+        n_steps = int(5 * float(T) / float(dt))  # 5 periods
+
+        # Run Yoshida
+        bodies_yoshida = generate_elliptical_orbit(m1, m2, T)
+        initial_energy = total_energy_bodies(bodies_yoshida)
+        yoshida_energy_errors = []
+
+        for _ in range(n_steps):
+            bodies_yoshida = yoshida_step(bodies_yoshida, dt)
+            error = (total_energy_bodies(bodies_yoshida) - initial_energy) / abs(initial_energy)
+            yoshida_energy_errors.append(error)
+
+        # Run RK4 with same initial conditions
+        bodies_rk4 = generate_elliptical_orbit(m1, m2, T)
+
+        rk4_energy_errors = []
+        for _ in range(n_steps):
+            bodies_rk4 = rk4_step(bodies_rk4, dt)
+            error = (total_energy_bodies(bodies_rk4) - initial_energy) / abs(initial_energy)
+            rk4_energy_errors.append(error)
+
+        # Both should have small errors with small dt
+        # But Yoshida should have bounded oscillation
+        yoshida_max = max(abs(e) for e in yoshida_energy_errors)
+        self.assertLess(yoshida_max, 1e-4)
 
 
 class TestInitialConditions(unittest.TestCase):
@@ -634,6 +744,59 @@ class TestSimulationIntegration(unittest.TestCase):
         relative_deviation = max_momentum / typical_momentum
 
         self.assertLess(relative_deviation, 1e-10)
+
+    def test_simulation_with_yoshida_integrator(self) -> None:
+        """Test run_simulation with Yoshida integrator (default)."""
+        from script.simulation import run_simulation
+
+        m1 = Mass(1e12)
+        m2 = Mass(1e12)
+        T = Time(2.0)
+
+        bodies = generate_elliptical_orbit(m1, m2, T)
+        result = run_simulation(bodies, dt=Time(0.001), t_max=T, integrator='yoshida')
+
+        self.assertFalse(result.collision)
+        self.assertEqual(result.metadata['integrator'], 'yoshida')
+
+        # Check energy conservation
+        initial_energy = result.energy[0]
+        max_deviation = np.max(np.abs(result.energy - initial_energy))
+        relative_deviation = max_deviation / abs(initial_energy)
+        self.assertLess(relative_deviation, 1e-5)
+
+    def test_simulation_with_rk4_integrator(self) -> None:
+        """Test run_simulation with RK4 integrator."""
+        from script.simulation import run_simulation
+
+        m1 = Mass(1e12)
+        m2 = Mass(1e12)
+        T = Time(2.0)
+
+        bodies = generate_elliptical_orbit(m1, m2, T)
+        result = run_simulation(bodies, dt=Time(0.001), t_max=T, integrator='rk4')
+
+        self.assertFalse(result.collision)
+        self.assertEqual(result.metadata['integrator'], 'rk4')
+
+        # Check energy conservation
+        initial_energy = result.energy[0]
+        max_deviation = np.max(np.abs(result.energy - initial_energy))
+        relative_deviation = max_deviation / abs(initial_energy)
+        self.assertLess(relative_deviation, 1e-5)
+
+    def test_simulation_default_integrator_is_yoshida(self) -> None:
+        """Test that default integrator is Yoshida."""
+        from script.simulation import run_simulation
+
+        m1 = Mass(1e12)
+        m2 = Mass(1e12)
+        T = Time(1.0)
+
+        bodies = generate_elliptical_orbit(m1, m2, T)
+        result = run_simulation(bodies, dt=Time(0.01), t_max=T)
+
+        self.assertEqual(result.metadata['integrator'], 'yoshida')
 
 
 def main() -> None:

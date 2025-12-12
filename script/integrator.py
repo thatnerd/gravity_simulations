@@ -2,14 +2,15 @@
 """
 Numerical integration for gravitational simulation.
 
-This module provides RK4 integration and stability checking.
+This module provides symplectic (Yoshida) and RK4 integration methods.
 Works with lists of Body objects for n-body support.
 
 Usage:
-    from script.integrator import rk4_step, check_stability
+    from script.integrator import integrate_step, check_stability
 """
 
 from itertools import combinations
+from typing import Callable, Literal
 import numpy as np
 from numpy.typing import NDArray
 
@@ -18,6 +19,31 @@ from script.physics import G, gravitational_force
 
 # Acceleration threshold for collision detection (m/s²)
 STABILITY_THRESHOLD: float = 1e12
+
+# Integrator type
+IntegratorType = Literal['yoshida', 'rk4']
+
+# ============================================================
+# Yoshida 4th Order Symplectic Integrator Coefficients
+# ============================================================
+# Reference: Yoshida, H. (1990). "Construction of higher order
+# symplectic integrators". Physics Letters A, 150, 262-268.
+
+_CBRT_2 = 2.0 ** (1.0 / 3.0)
+_W0 = -_CBRT_2 / (2.0 - _CBRT_2)
+_W1 = 1.0 / (2.0 - _CBRT_2)
+
+# Position update coefficients (drift)
+_C1 = _W1 / 2.0
+_C2 = (_W0 + _W1) / 2.0
+_C3 = _C2
+_C4 = _C1
+
+# Velocity update coefficients (kick)
+_D1 = _W1
+_D2 = _W0
+_D3 = _W1
+# _D4 = 0 (no final kick needed)
 
 
 def compute_accelerations(bodies: list[Body]) -> list[Acceleration]:
@@ -46,6 +72,96 @@ def compute_accelerations(bodies: list[Body]) -> list[Acceleration]:
     return [Acceleration(a) for a in accels]
 
 
+# ============================================================
+# Yoshida Symplectic Integrator
+# ============================================================
+
+def _drift(bodies: list[Body], dt: float) -> list[Body]:
+    """
+    Position drift: x += v * dt
+
+    Args:
+        bodies: List of Body objects
+        dt: Time step (already scaled by coefficient)
+
+    Returns:
+        New list of Body objects with updated positions
+    """
+    return [
+        Body(
+            b.mass,
+            Position(b.position.array + b.velocity.array * dt),
+            b.velocity
+        )
+        for b in bodies
+    ]
+
+
+def _kick(bodies: list[Body], dt: float) -> list[Body]:
+    """
+    Velocity kick: v += a(x) * dt
+
+    Args:
+        bodies: List of Body objects
+        dt: Time step (already scaled by coefficient)
+
+    Returns:
+        New list of Body objects with updated velocities
+    """
+    accels = compute_accelerations(bodies)
+    return [
+        Body(
+            b.mass,
+            b.position,
+            Velocity(b.velocity.array + accels[i].array * dt)
+        )
+        for i, b in enumerate(bodies)
+    ]
+
+
+def yoshida_step(bodies: list[Body], dt: Time) -> list[Body]:
+    """
+    Perform one Yoshida 4th order symplectic integration step.
+
+    The Yoshida integrator is symplectic, meaning it preserves phase-space
+    volume and exhibits bounded energy oscillations rather than secular drift.
+    This makes it ideal for long-term orbital simulations.
+
+    Args:
+        bodies: List of Body objects
+        dt: Time step
+
+    Returns:
+        New list of Body objects after time dt
+    """
+    dt_val = float(dt)
+
+    # Yoshida 4th order: alternating drift (position) and kick (velocity)
+    # using carefully chosen coefficients for 4th order accuracy
+
+    # Step 1: drift by c1*dt
+    bodies = _drift(bodies, _C1 * dt_val)
+    # Step 2: kick by d1*dt
+    bodies = _kick(bodies, _D1 * dt_val)
+    # Step 3: drift by c2*dt
+    bodies = _drift(bodies, _C2 * dt_val)
+    # Step 4: kick by d2*dt
+    bodies = _kick(bodies, _D2 * dt_val)
+    # Step 5: drift by c3*dt
+    bodies = _drift(bodies, _C3 * dt_val)
+    # Step 6: kick by d3*dt
+    bodies = _kick(bodies, _D3 * dt_val)
+    # Step 7: drift by c4*dt
+    bodies = _drift(bodies, _C4 * dt_val)
+    # (d4 = 0, so no final kick)
+
+    return bodies
+
+
+# ============================================================
+# RK4 Integrator
+# ============================================================
+
 def _derivatives(bodies: list[Body]) -> tuple[list[NDArray], list[NDArray]]:
     """
     Compute derivatives for RK4 integration.
@@ -71,6 +187,10 @@ def _derivatives(bodies: list[Body]) -> tuple[list[NDArray], list[NDArray]]:
 def rk4_step(bodies: list[Body], dt: Time) -> list[Body]:
     """
     Perform one RK4 integration step.
+
+    RK4 is a general-purpose 4th order method with good local accuracy,
+    but it is not symplectic and will exhibit energy drift over long
+    simulations.
 
     Args:
         bodies: List of Body objects
@@ -121,6 +241,44 @@ def rk4_step(bodies: list[Body], dt: Time) -> list[Body]:
     return new_bodies
 
 
+# ============================================================
+# Integrator Dispatcher
+# ============================================================
+
+_INTEGRATORS: dict[str, Callable[[list[Body], Time], list[Body]]] = {
+    'yoshida': yoshida_step,
+    'rk4': rk4_step,
+}
+
+
+def integrate_step(
+    bodies: list[Body],
+    dt: Time,
+    method: IntegratorType = 'yoshida'
+) -> list[Body]:
+    """
+    Perform one integration step using the specified method.
+
+    Args:
+        bodies: List of Body objects
+        dt: Time step
+        method: Integration method ('yoshida' or 'rk4')
+
+    Returns:
+        New list of Body objects after time dt
+
+    Raises:
+        ValueError: If method is not recognized
+    """
+    if method not in _INTEGRATORS:
+        raise ValueError(f"Unknown integrator: {method}. Choose from: {list(_INTEGRATORS.keys())}")
+    return _INTEGRATORS[method](bodies, dt)
+
+
+# ============================================================
+# Stability Check
+# ============================================================
+
 def check_stability(
     bodies: list[Body],
     threshold: float = STABILITY_THRESHOLD
@@ -149,6 +307,15 @@ def main() -> None:
     """Module test."""
     print("Integrator module loaded successfully.")
     print(f"Stability threshold: {STABILITY_THRESHOLD:.2e} m/s²")
+    print(f"Available integrators: {list(_INTEGRATORS.keys())}")
+    print(f"Default integrator: yoshida")
+    print(f"\nYoshida coefficients:")
+    print(f"  w0 = {_W0:.10f}")
+    print(f"  w1 = {_W1:.10f}")
+    print(f"  c1 = c4 = {_C1:.10f}")
+    print(f"  c2 = c3 = {_C2:.10f}")
+    print(f"  d1 = d3 = {_D1:.10f}")
+    print(f"  d2 = {_D2:.10f}")
 
 
 if __name__ == '__main__':

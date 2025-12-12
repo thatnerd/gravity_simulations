@@ -22,6 +22,7 @@ Options:
     --angle <degrees>           Starting angle in degrees [default: random]
     --duration <seconds>        Total simulation time [default: 100]
     --dt <seconds>              Time step [default: 0.01]
+    --integrator <method>       Integration method: yoshida or rk4 [default: yoshida]
     --output <file>             Output JSON file [default: output/simulation.json]
     --no-animate                Skip animation, only save data
     --speed <multiplier>        Playback speed multiplier [default: 1.0]
@@ -38,6 +39,9 @@ Examples:
 
     # Circular orbit (eccentricity = 0)
     python3 script/two_body_sim.py --eccentricity 0
+
+    # Use RK4 integrator instead of Yoshida (default)
+    python3 script/two_body_sim.py --integrator rk4
 
     # Run from config file
     python3 script/two_body_sim.py --config config/my_config.json
@@ -90,6 +94,13 @@ def parse_period(value: str) -> float | None:
     return float(value)
 
 
+def parse_float_or_random(value: str) -> float | None:
+    """Parse float value, returning None for 'random'."""
+    if value.lower() == 'random':
+        return None
+    return float(value)
+
+
 def main() -> None:
     """Main entry point."""
     args = docopt(__doc__)
@@ -120,6 +131,7 @@ def main() -> None:
         angle_val = config.get('angle')  # degrees in config
         duration = config.get('duration', 100.0)
         dt = config.get('dt', 0.01)
+        integrator = config.get('integrator', 'yoshida')
         output = config.get('output', 'output/simulation.json')
         no_animate = config.get('no_animate', False)
         speed = config.get('speed', 1.0)
@@ -130,10 +142,11 @@ def main() -> None:
         m1_val = parse_mass(args['--m1']) if args['--m1'] else None
         m2_val = parse_mass(args['--m2']) if args['--m2'] else None
         period_val = parse_period(args['--period']) if args['--period'] else None
-        eccentricity_val = float(args['--eccentricity']) if args['--eccentricity'] else None
-        angle_val = float(args['--angle']) if args['--angle'] else None  # degrees
+        eccentricity_val = parse_float_or_random(args['--eccentricity']) if args['--eccentricity'] else None
+        angle_val = parse_float_or_random(args['--angle']) if args['--angle'] else None  # degrees
         duration = float(args['--duration'])
         dt = float(args['--dt'])
+        integrator = args['--integrator']
         output = args['--output']
         no_animate = args['--no-animate']
         speed = float(args['--speed'])
@@ -185,6 +198,7 @@ def main() -> None:
     print(f"Starting angle:  {np.degrees(true_anomaly):.1f}°")
     print(f"Duration:        {duration:.1f} s")
     print(f"Time step:       {dt} s")
+    print(f"Integrator:      {integrator}")
     print(f"Expected steps:  {int(duration / dt) + 1}")
     print(f"Output file:     {output}")
     print("=" * 60)
@@ -202,7 +216,7 @@ def main() -> None:
     print("\nRunning simulation...")
     dt_time = Time(dt)
     t_max_time = Time(duration)
-    result = run_simulation(bodies, dt=dt_time, t_max=t_max_time)
+    result = run_simulation(bodies, dt=dt_time, t_max=t_max_time, integrator=integrator)
 
     # Add extra metadata
     result.metadata['period'] = period_f

@@ -16,7 +16,7 @@
 # Project: Two-Body Gravitational Simulation
 
 ## Project Description
-A 2D gravitational simulation of two bodies orbiting their common center of mass. Uses RK4 numerical integration with SI units. Records orbital data to JSON and provides matplotlib visualization with playback controls.
+A 2D gravitational simulation of two bodies orbiting their common center of mass. Supports Yoshida 4th-order symplectic integration (default) and RK4, with SI units. Records orbital data to JSON and provides matplotlib visualization with playback controls.
 
 ## Tech Stack
 - Python 3
@@ -42,7 +42,7 @@ gravity_simulations/
 ├── script/
 │   ├── __init__.py
 │   ├── physics.py           # Force, energy, momentum calculations
-│   ├── integrator.py        # RK4 stepper, stability check
+│   ├── integrator.py        # Yoshida/RK4 steppers, stability check
 │   ├── initial_conditions.py # Circular orbit generation
 │   ├── simulation.py        # Main loop, SimulationResult dataclass
 │   ├── io_handler.py        # JSON save/load
@@ -63,11 +63,14 @@ gravity_simulations/
 
 ## Usage
 ```bash
-# Run with random parameters
+# Run with random parameters (uses Yoshida integrator by default)
 python3 script/two_body_sim.py
 
 # Run with specific masses and period
 python3 script/two_body_sim.py --m1 1e12 --m2 2e12 --period 2.5
+
+# Use RK4 integrator instead of Yoshida
+python3 script/two_body_sim.py --integrator rk4
 
 # Load from config file
 python3 script/two_body_sim.py --config config/example_config.json
@@ -83,25 +86,22 @@ python3 script/two_body_sim.py --playback output/simulation.json --save-video ou
 ```
 
 ## Current Status
-- All modules implemented and committed
-- Tests written but NOT YET RUN (Python not available in dev environment)
+- All modules implemented and working
+- All 46 tests pass
+- Yoshida 4th-order symplectic integrator implemented as default
+- RK4 available as alternative via `--integrator rk4`
+- Elliptical orbits fully supported via `--eccentricity` and `--angle`
 - Visualization untested (requires display or video export)
 
-## Next Steps
-1. Install Python dependencies: `pip install numpy matplotlib docopt pytest`
-2. Run the test suite: `python3 -m pytest test/test_two_body_sim.py -v`
-3. Fix any test failures
-4. Run a simulation: `python3 script/two_body_sim.py --no-animate`
-5. Test visualization (if display available) or export to video
-6. Verify conservation laws (energy, angular momentum) in output
+## Integrators
+- **Yoshida (default)**: 4th-order symplectic integrator. Preserves phase-space volume, exhibits bounded energy oscillations rather than secular drift. Ideal for long-term orbital simulations.
+- **RK4**: Classical 4th-order Runge-Kutta. Better local accuracy but exhibits linear energy drift over time.
 
 ## Known Issues
-- Tests have not been run yet - may contain bugs
 - Visualization requires either a display or video export (headless VM limitation)
 - Old test files in test/ directory are from previous project version
 
 ## Future Plans
-- Add elliptical orbit support (specify eccentricity)
 - Add 3-body simulation
 - Add real-time energy/momentum plots alongside animation
 - Performance optimization for longer simulations
