@@ -33,10 +33,12 @@ from script.integrator import (
     check_stability,
 )
 from script.initial_conditions import (
-    generate_circular_orbit,
+    generate_elliptical_orbit,
     generate_random_masses,
     generate_random_period,
-    compute_orbital_parameters,
+    generate_random_eccentricity,
+    generate_random_true_anomaly,
+    compute_semi_major_axis,
 )
 from script.io_handler import (
     save_results,
@@ -227,7 +229,7 @@ class TestIntegrator(unittest.TestCase):
         m2 = Mass(1e12)
         T = Time(2.0)  # seconds
 
-        state = generate_circular_orbit(m1, m2, T)
+        state = generate_elliptical_orbit(m1, m2, T)
         initial_energy = total_energy(state, m1, m2)
 
         # Take many small steps
@@ -320,37 +322,43 @@ class TestInitialConditions(unittest.TestCase):
             self.assertLessEqual(float(period), max_period)
             self.assertIsInstance(period, Time)
 
-    def test_compute_orbital_parameters(self) -> None:
-        """Test orbital parameters give correct period."""
+    def test_compute_semi_major_axis(self) -> None:
+        """Test semi-major axis calculation from period."""
         m1 = Mass(1e12)
         m2 = Mass(2e12)
         T = Time(3.0)  # seconds
 
-        r, v1, v2 = compute_orbital_parameters(m1, m2, T)
+        a = compute_semi_major_axis(m1, m2, T)
 
-        # Verify with Kepler's third law
+        # Verify with Kepler's third law: T² = 4π²a³/(GM)
         M = float(m1) + float(m2)
-        expected_r = (G * M * float(T)**2 / (4 * np.pi**2)) ** (1/3)
-        self.assertAlmostEqual(r, expected_r, places=10)
+        expected_a = (G * M * float(T)**2 / (4 * np.pi**2)) ** (1/3)
+        self.assertAlmostEqual(a, expected_a, places=10)
 
-    def test_generate_circular_orbit_momentum(self) -> None:
+    def test_generate_elliptical_orbit_momentum(self) -> None:
         """Test generated orbit has zero total momentum."""
         m1 = Mass(1e12)
         m2 = Mass(2e12)
         T = Time(2.5)
 
-        state = generate_circular_orbit(m1, m2, T)
-        p = total_momentum(state, m1, m2)
+        # Test with various eccentricities and angles
+        for e in [0.0, 0.3, 0.6]:
+            for theta in [0.0, np.pi/4, np.pi]:
+                state = generate_elliptical_orbit(m1, m2, T, eccentricity=e, true_anomaly=theta)
+                p = total_momentum(state, m1, m2)
+                np.testing.assert_array_almost_equal(
+                    p.array, np.array([0.0, 0.0]), decimal=10,
+                    err_msg=f"Failed for e={e}, theta={theta}"
+                )
 
-        np.testing.assert_array_almost_equal(p.array, np.array([0.0, 0.0]), decimal=10)
-
-    def test_generate_circular_orbit_period(self) -> None:
-        """Test generated orbit has correct period."""
+    def test_generate_elliptical_orbit_period(self) -> None:
+        """Test generated circular orbit has correct period."""
         m1 = Mass(1e12)
         m2 = Mass(1e12)
         T = Time(2.0)
 
-        state = generate_circular_orbit(m1, m2, T)
+        # Use circular orbit (e=0) for period test
+        state = generate_elliptical_orbit(m1, m2, T, eccentricity=0.0)
         initial_pos = state.array.copy()
 
         # Simulate one full period
@@ -365,6 +373,41 @@ class TestInitialConditions(unittest.TestCase):
         relative_error = pos_error / max_separation
 
         self.assertLess(relative_error, 0.01)
+
+    def test_generate_elliptical_orbit_eccentricity(self) -> None:
+        """Test elliptical orbit has correct distance at periapsis and apoapsis."""
+        m1 = Mass(1e12)
+        m2 = Mass(1e12)
+        T = Time(2.0)
+        e = 0.5
+
+        a = compute_semi_major_axis(m1, m2, T)
+
+        # At periapsis (theta=0), r = a(1-e)
+        state_peri = generate_elliptical_orbit(m1, m2, T, eccentricity=e, true_anomaly=0.0)
+        r_peri = np.linalg.norm(state_peri.position(0).array - state_peri.position(1).array)
+        expected_peri = a * (1 - e)
+        self.assertAlmostEqual(r_peri, expected_peri, places=8)
+
+        # At apoapsis (theta=π), r = a(1+e)
+        state_apo = generate_elliptical_orbit(m1, m2, T, eccentricity=e, true_anomaly=np.pi)
+        r_apo = np.linalg.norm(state_apo.position(0).array - state_apo.position(1).array)
+        expected_apo = a * (1 + e)
+        self.assertAlmostEqual(r_apo, expected_apo, places=8)
+
+    def test_generate_random_eccentricity(self) -> None:
+        """Test random eccentricity is within range."""
+        for _ in range(100):
+            e = generate_random_eccentricity(max_e=0.7)
+            self.assertGreaterEqual(e, 0.0)
+            self.assertLess(e, 0.7)
+
+    def test_generate_random_true_anomaly(self) -> None:
+        """Test random true anomaly is within [0, 2π)."""
+        for _ in range(100):
+            theta = generate_random_true_anomaly()
+            self.assertGreaterEqual(theta, 0.0)
+            self.assertLess(theta, 2 * np.pi)
 
 
 class TestIOHandler(unittest.TestCase):
@@ -465,7 +508,7 @@ class TestTwoBodySimMain(unittest.TestCase):
         m2 = Mass(1e12)
         T = Time(2.0)
 
-        state = generate_circular_orbit(m1, m2, T)
+        state = generate_elliptical_orbit(m1, m2, T)
         result = run_simulation(state, m1, m2, dt=Time(0.001), t_max=T)
 
         # This is what two_body_sim.py does - should work with vector angular momentum
@@ -511,7 +554,7 @@ class TestSimulationIntegration(unittest.TestCase):
         m2 = Mass(1e12)
         T = Time(2.0)
 
-        state = generate_circular_orbit(m1, m2, T)
+        state = generate_elliptical_orbit(m1, m2, T)
 
         # Run with very low threshold - should trigger collision detection
         result_low = run_simulation(
@@ -535,7 +578,7 @@ class TestSimulationIntegration(unittest.TestCase):
         m2 = Mass(1e12)
         T = Time(2.0)
 
-        state = generate_circular_orbit(m1, m2, T)
+        state = generate_elliptical_orbit(m1, m2, T)
         result = run_simulation(state, m1, m2, dt=Time(0.001), t_max=T)
 
         # Energy should be conserved
@@ -553,7 +596,7 @@ class TestSimulationIntegration(unittest.TestCase):
         m2 = Mass(2e12)
         T = Time(2.0)
 
-        state = generate_circular_orbit(m1, m2, T)
+        state = generate_elliptical_orbit(m1, m2, T)
         result = run_simulation(state, m1, m2, dt=Time(0.001), t_max=T)
 
         # For 2D motion, only z-component of angular momentum is nonzero
@@ -571,7 +614,7 @@ class TestSimulationIntegration(unittest.TestCase):
         m2 = Mass(2e12)
         T = Time(2.0)
 
-        state = generate_circular_orbit(m1, m2, T)
+        state = generate_elliptical_orbit(m1, m2, T)
         result = run_simulation(state, m1, m2, dt=Time(0.001), t_max=T)
 
         # Momentum should stay near zero

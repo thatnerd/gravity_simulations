@@ -18,6 +18,8 @@ Options:
     --m1 <mass1>                Mass of body 1 in kg [default: random]
     --m2 <mass2>                Mass of body 2 in kg [default: random]
     --period <seconds>          Orbital period in seconds [default: random]
+    --eccentricity <e>          Orbital eccentricity 0-1 [default: random]
+    --angle <degrees>           Starting angle in degrees [default: random]
     --duration <seconds>        Total simulation time [default: 100]
     --dt <seconds>              Time step [default: 0.01]
     --output <file>             Output JSON file [default: output/simulation.json]
@@ -28,11 +30,14 @@ Options:
     --seed <seed>               Random seed for reproducibility
 
 Examples:
-    # Run with random parameters
+    # Run with random parameters (elliptical orbit)
     python3 script/two_body_sim.py
 
-    # Run with specific masses and period
-    python3 script/two_body_sim.py --m1 1e12 --m2 2e12 --period 2.5
+    # Run with specific orbit parameters
+    python3 script/two_body_sim.py --m1 1e12 --m2 2e12 --period 2.5 --eccentricity 0.5 --angle 45
+
+    # Circular orbit (eccentricity = 0)
+    python3 script/two_body_sim.py --eccentricity 0
 
     # Run from config file
     python3 script/two_body_sim.py --config config/my_config.json
@@ -60,9 +65,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from script.physics import G
 from script.units import Mass, Time
 from script.initial_conditions import (
-    generate_circular_orbit,
+    generate_elliptical_orbit,
     generate_random_masses,
     generate_random_period,
+    generate_random_eccentricity,
+    generate_random_true_anomaly,
 )
 from script.simulation import run_simulation
 from script.io_handler import save_results, load_results, load_config
@@ -109,6 +116,8 @@ def main() -> None:
         m1_val = config.get('m1')
         m2_val = config.get('m2')
         period_val = config.get('period')
+        eccentricity_val = config.get('eccentricity')
+        angle_val = config.get('angle')  # degrees in config
         duration = config.get('duration', 100.0)
         dt = config.get('dt', 0.01)
         output = config.get('output', 'output/simulation.json')
@@ -121,6 +130,8 @@ def main() -> None:
         m1_val = parse_mass(args['--m1']) if args['--m1'] else None
         m2_val = parse_mass(args['--m2']) if args['--m2'] else None
         period_val = parse_period(args['--period']) if args['--period'] else None
+        eccentricity_val = float(args['--eccentricity']) if args['--eccentricity'] else None
+        angle_val = float(args['--angle']) if args['--angle'] else None  # degrees
         duration = float(args['--duration'])
         dt = float(args['--dt'])
         output = args['--output']
@@ -148,6 +159,16 @@ def main() -> None:
     else:
         period = Time(period_val)
 
+    if eccentricity_val is None:
+        eccentricity = generate_random_eccentricity()
+    else:
+        eccentricity = eccentricity_val
+
+    if angle_val is None:
+        true_anomaly = generate_random_true_anomaly()
+    else:
+        true_anomaly = np.radians(angle_val)  # Convert degrees to radians
+
     # Print simulation parameters
     m1_f = float(m1)
     m2_f = float(m2)
@@ -160,6 +181,8 @@ def main() -> None:
     print(f"Mass 2:          {m2_f:.3e} kg")
     print(f"Mass ratio:      {max(m1_f, m2_f) / min(m1_f, m2_f):.2f}")
     print(f"Orbital period:  {period_f:.3f} s")
+    print(f"Eccentricity:    {eccentricity:.3f}")
+    print(f"Starting angle:  {np.degrees(true_anomaly):.1f}°")
     print(f"Duration:        {duration:.1f} s")
     print(f"Time step:       {dt} s")
     print(f"Expected steps:  {int(duration / dt) + 1}")
@@ -168,7 +191,7 @@ def main() -> None:
 
     # Generate initial conditions
     print("\nGenerating initial conditions...")
-    initial_state = generate_circular_orbit(m1, m2, period)
+    initial_state = generate_elliptical_orbit(m1, m2, period, eccentricity, true_anomaly)
 
     r1 = initial_state.position(0).array
     r2 = initial_state.position(1).array
@@ -183,6 +206,8 @@ def main() -> None:
 
     # Add extra metadata
     result.metadata['period'] = period_f
+    result.metadata['eccentricity'] = eccentricity
+    result.metadata['true_anomaly'] = true_anomaly
     result.metadata['initial_separation'] = separation
     result.metadata['G'] = G
 
