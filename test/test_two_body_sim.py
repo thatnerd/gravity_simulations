@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unit tests for two-body gravitational simulation.
+Unit tests for gravitational simulation.
 
 Usage:
     test_two_body_sim.py [options]
@@ -21,16 +21,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from script.physics import (
     G,
     gravitational_force,
-    compute_accelerations,
-    total_momentum,
+    momentum,
     angular_momentum,
     kinetic_energy,
     potential_energy,
-    total_energy,
 )
 from script.integrator import (
     rk4_step,
     check_stability,
+    compute_accelerations,
 )
 from script.initial_conditions import (
     generate_elliptical_orbit,
@@ -46,12 +45,51 @@ from script.io_handler import (
     load_config,
     NumpyEncoder,
 )
-from script.integrator import compute_accelerations
 from script.simulation import SimulationResult
 from script.units import (
-    Mass, Time, TwoBodyState, Acceleration,
-    position, velocity,
+    Mass, Time, Body, Acceleration,
+    position, velocity, body,
 )
+
+
+def make_bodies(m1: Mass, m2: Mass, pos1, vel1, pos2, vel2) -> list[Body]:
+    """Helper to create two-body list."""
+    return [Body(m1, pos1, vel1), Body(m2, pos2, vel2)]
+
+
+def total_momentum_bodies(bodies: list[Body]) -> np.ndarray:
+    """Compute total momentum of all bodies."""
+    total = np.zeros(2)
+    for b in bodies:
+        total += momentum(b).array
+    return total
+
+
+def total_angular_momentum_bodies(bodies: list[Body]) -> np.ndarray:
+    """Compute total angular momentum of all bodies."""
+    total = np.zeros(3)
+    for b in bodies:
+        total += angular_momentum(b).array
+    return total
+
+
+def total_kinetic_energy_bodies(bodies: list[Body]) -> float:
+    """Compute total kinetic energy of all bodies."""
+    return sum(float(kinetic_energy(b)) for b in bodies)
+
+
+def total_potential_energy_bodies(bodies: list[Body]) -> float:
+    """Compute total potential energy of all bodies."""
+    from itertools import combinations
+    total = 0.0
+    for i, j in combinations(range(len(bodies)), 2):
+        total += float(potential_energy(bodies[i], bodies[j]))
+    return total
+
+
+def total_energy_bodies(bodies: list[Body]) -> float:
+    """Compute total energy of all bodies."""
+    return total_kinetic_energy_bodies(bodies) + total_potential_energy_bodies(bodies)
 
 
 class TestPhysics(unittest.TestCase):
@@ -59,167 +97,158 @@ class TestPhysics(unittest.TestCase):
 
     def test_gravitational_force_magnitude(self) -> None:
         """Test gravitational force has correct magnitude."""
-        m1 = Mass(1e10)
-        m2 = Mass(2e10)
-        r1 = position(0.0, 0.0)
-        r2 = position(100.0, 0.0)  # 100m apart
+        b1 = body(1e10, 0.0, 0.0, 0.0, 0.0)
+        b2 = body(2e10, 100.0, 0.0, 0.0, 0.0)
 
-        force = gravitational_force(m1, m2, r1, r2)
-        expected_magnitude = G * float(m1) * float(m2) / (100.0 ** 2)
+        force = gravitational_force(b1, b2)
+        expected_magnitude = G * float(b1.mass) * float(b2.mass) / (100.0 ** 2)
 
         self.assertAlmostEqual(force.magnitude(), expected_magnitude, places=10)
 
     def test_gravitational_force_direction(self) -> None:
         """Test gravitational force points toward other body."""
-        m1 = Mass(1e10)
-        m2 = Mass(1e10)
-        r1 = position(0.0, 0.0)
-        r2 = position(100.0, 0.0)
+        b1 = body(1e10, 0.0, 0.0, 0.0, 0.0)
+        b2 = body(1e10, 100.0, 0.0, 0.0, 0.0)
 
-        force = gravitational_force(m1, m2, r1, r2)
-        # Force on m1 should point toward m2 (positive x)
+        force = gravitational_force(b1, b2)
+        # Force on b1 should point toward b2 (positive x)
         self.assertGreater(force.x, 0)
         self.assertAlmostEqual(force.y, 0.0, places=15)
 
     def test_gravitational_force_symmetry(self) -> None:
         """Test Newton's third law: F12 = -F21."""
-        m1 = Mass(1e10)
-        m2 = Mass(2e10)
-        r1 = position(10.0, 20.0)
-        r2 = position(50.0, 80.0)
+        b1 = body(1e10, 10.0, 20.0, 0.0, 0.0)
+        b2 = body(2e10, 50.0, 80.0, 0.0, 0.0)
 
-        f1 = gravitational_force(m1, m2, r1, r2)
-        f2 = gravitational_force(m2, m1, r2, r1)
+        f1 = gravitational_force(b1, b2)
+        f2 = gravitational_force(b2, b1)
 
         np.testing.assert_array_almost_equal(f1.array, -f2.array, decimal=15)
 
     def test_compute_accelerations(self) -> None:
         """Test acceleration computation for two bodies."""
-        m1 = Mass(1e10)
-        m2 = Mass(2e10)
-        state = TwoBodyState.from_bodies(
-            position(0.0, 0.0), velocity(0.0, 0.0),
-            position(100.0, 0.0), velocity(0.0, 0.0)
-        )
+        bodies = [
+            body(1e10, 0.0, 0.0, 0.0, 0.0),
+            body(2e10, 100.0, 0.0, 0.0, 0.0),
+        ]
 
-        a1, a2 = compute_accelerations(state, m1, m2)
+        accels = compute_accelerations(bodies)
 
         # a1 should point toward body 2 (positive x)
-        self.assertGreater(a1.x, 0)
+        self.assertGreater(accels[0].x, 0)
         # a2 should point toward body 1 (negative x)
-        self.assertLess(a2.x, 0)
+        self.assertLess(accels[1].x, 0)
         # Newton's second law: m1*a1 = -m2*a2
         np.testing.assert_array_almost_equal(
-            float(m1) * a1.array, -float(m2) * a2.array, decimal=10
+            float(bodies[0].mass) * accels[0].array,
+            -float(bodies[1].mass) * accels[1].array,
+            decimal=10
         )
 
     def test_total_momentum_zero(self) -> None:
         """Test momentum calculation for zero total momentum setup."""
-        m1 = Mass(1e10)
-        m2 = Mass(1e10)
         # Equal masses, opposite velocities
-        state = TwoBodyState.from_bodies(
-            position(0.0, 0.0), velocity(10.0, 0.0),
-            position(100.0, 0.0), velocity(-10.0, 0.0)
-        )
+        bodies = [
+            body(1e10, 0.0, 0.0, 10.0, 0.0),
+            body(1e10, 100.0, 0.0, -10.0, 0.0),
+        ]
 
-        p = total_momentum(state, m1, m2)
-        np.testing.assert_array_almost_equal(p.array, np.array([0.0, 0.0]), decimal=10)
+        p = total_momentum_bodies(bodies)
+        np.testing.assert_array_almost_equal(p, np.array([0.0, 0.0]), decimal=10)
 
     def test_angular_momentum(self) -> None:
         """Test angular momentum calculation."""
-        m1 = Mass(1e10)
-        m2 = Mass(1e10)
         # Bodies in circular orbit around origin
-        state = TwoBodyState.from_bodies(
-            position(10.0, 0.0), velocity(0.0, 5.0),    # body 1 at x=10, moving +y
-            position(-10.0, 0.0), velocity(0.0, -5.0)  # body 2 at x=-10, moving -y
-        )
+        bodies = [
+            body(1e10, 10.0, 0.0, 0.0, 5.0),     # body 1 at x=10, moving +y
+            body(1e10, -10.0, 0.0, 0.0, -5.0),   # body 2 at x=-10, moving -y
+        ]
 
-        L = angular_momentum(state, m1, m2)
+        L = total_angular_momentum_bodies(bodies)
         # Both contribute positive angular momentum (counter-clockwise)
         # L1 = m1 * (r1 x v1) = m1 * (10 * 5 - 0 * 0) = 50 * m1
         # L2 = m2 * (r2 x v2) = m2 * (-10 * -5 - 0 * 0) = 50 * m2
-        expected_z = float(m1) * 50.0 + float(m2) * 50.0
-        # Angular momentum is a 3D vector; for 2D motion, only z-component is nonzero
-        self.assertAlmostEqual(L.z, expected_z, places=5)
-        self.assertAlmostEqual(L.x, 0.0, places=10)
-        self.assertAlmostEqual(L.y, 0.0, places=10)
+        expected_z = float(bodies[0].mass) * 50.0 + float(bodies[1].mass) * 50.0
+        self.assertAlmostEqual(L[2], expected_z, places=5)
+        self.assertAlmostEqual(L[0], 0.0, places=10)
+        self.assertAlmostEqual(L[1], 0.0, places=10)
 
     def test_kinetic_energy(self) -> None:
         """Test kinetic energy calculation."""
-        m1 = Mass(2.0)
-        m2 = Mass(3.0)
-        state = TwoBodyState.from_bodies(
-            position(0.0, 0.0), velocity(4.0, 0.0),   # v1 = 4 m/s
-            position(10.0, 0.0), velocity(0.0, 5.0)  # v2 = 5 m/s
-        )
+        bodies = [
+            body(2.0, 0.0, 0.0, 4.0, 0.0),   # v1 = 4 m/s
+            body(3.0, 10.0, 0.0, 0.0, 5.0),  # v2 = 5 m/s
+        ]
 
-        KE = kinetic_energy(state, m1, m2)
-        expected = 0.5 * float(m1) * 16.0 + 0.5 * float(m2) * 25.0  # 16 + 37.5 = 53.5
-        self.assertAlmostEqual(float(KE), expected, places=10)
+        KE = total_kinetic_energy_bodies(bodies)
+        expected = 0.5 * 2.0 * 16.0 + 0.5 * 3.0 * 25.0  # 16 + 37.5 = 53.5
+        self.assertAlmostEqual(KE, expected, places=10)
 
     def test_potential_energy(self) -> None:
         """Test gravitational potential energy calculation."""
-        m1 = Mass(1e10)
-        m2 = Mass(2e10)
         r = 100.0
-        state = TwoBodyState.from_bodies(
-            position(0.0, 0.0), velocity(0.0, 0.0),
-            position(r, 0.0), velocity(0.0, 0.0)
-        )
+        bodies = [
+            body(1e10, 0.0, 0.0, 0.0, 0.0),
+            body(2e10, r, 0.0, 0.0, 0.0),
+        ]
 
-        PE = potential_energy(state, m1, m2)
-        expected = -G * float(m1) * float(m2) / r
-        self.assertAlmostEqual(float(PE), expected, places=10)
+        PE = total_potential_energy_bodies(bodies)
+        expected = -G * float(bodies[0].mass) * float(bodies[1].mass) / r
+        self.assertAlmostEqual(PE, expected, places=10)
 
     def test_total_energy(self) -> None:
         """Test total energy is sum of kinetic and potential."""
-        m1 = Mass(1e10)
-        m2 = Mass(2e10)
-        state = TwoBodyState.from_bodies(
-            position(0.0, 0.0), velocity(100.0, 0.0),
-            position(1000.0, 0.0), velocity(-50.0, 0.0)
-        )
+        bodies = [
+            body(1e10, 0.0, 0.0, 100.0, 0.0),
+            body(2e10, 1000.0, 0.0, -50.0, 0.0),
+        ]
 
-        E = total_energy(state, m1, m2)
-        KE = kinetic_energy(state, m1, m2)
-        PE = potential_energy(state, m1, m2)
+        E = total_energy_bodies(bodies)
+        KE = total_kinetic_energy_bodies(bodies)
+        PE = total_potential_energy_bodies(bodies)
 
-        self.assertAlmostEqual(float(E), float(KE) + float(PE), places=10)
+        self.assertAlmostEqual(E, KE + PE, places=10)
 
 
 class TestIntegrator(unittest.TestCase):
     """Tests for integrator.py functions."""
 
-    def test_derivatives_shape(self) -> None:
-        """Test rk4_step maintains state shape."""
-        m1 = Mass(1e10)
-        m2 = Mass(2e10)
-        state = TwoBodyState.from_bodies(
-            position(0.0, 0.0), velocity(10.0, 5.0),
-            position(100.0, 0.0), velocity(-5.0, 2.0)
-        )
+    def test_rk4_step_returns_list(self) -> None:
+        """Test rk4_step returns list of same length."""
+        bodies = [
+            body(1e10, 0.0, 0.0, 10.0, 5.0),
+            body(2e10, 100.0, 0.0, -5.0, 2.0),
+        ]
 
-        new_state = rk4_step(state, Time(0.01), m1, m2)
-        self.assertEqual(new_state.array.shape, state.array.shape)
+        new_bodies = rk4_step(bodies, Time(0.01))
+        self.assertEqual(len(new_bodies), len(bodies))
+        for b in new_bodies:
+            self.assertIsInstance(b, Body)
+
+    def test_rk4_step_preserves_mass(self) -> None:
+        """Test that masses are preserved across steps."""
+        bodies = [
+            body(1e10, 0.0, 0.0, 10.0, 5.0),
+            body(2e10, 100.0, 0.0, -5.0, 2.0),
+        ]
+
+        new_bodies = rk4_step(bodies, Time(0.01))
+        for i in range(len(bodies)):
+            self.assertEqual(float(bodies[i].mass), float(new_bodies[i].mass))
 
     def test_derivatives_velocities(self) -> None:
         """Test that position changes in direction of velocity."""
-        m1 = Mass(1e10)
-        m2 = Mass(2e10)
         v1 = velocity(10.0, 5.0)
-        v2 = velocity(-5.0, 2.0)
-        state = TwoBodyState.from_bodies(
-            position(0.0, 0.0), v1,
-            position(100.0, 0.0), v2
-        )
+        bodies = [
+            Body(Mass(1e10), position(0.0, 0.0), v1),
+            Body(Mass(2e10), position(100.0, 0.0), velocity(-5.0, 2.0)),
+        ]
 
         dt = Time(0.001)
-        new_state = rk4_step(state, dt, m1, m2)
+        new_bodies = rk4_step(bodies, dt)
 
         # Position should move approximately in direction of velocity
-        pos1_delta = new_state.position(0).array - state.position(0).array
+        pos1_delta = new_bodies[0].position.array - bodies[0].position.array
         # Dot product should be positive (same direction)
         self.assertGreater(np.dot(pos1_delta, v1.array), 0)
 
@@ -227,65 +256,54 @@ class TestIntegrator(unittest.TestCase):
         """Test RK4 step maintains circular orbit accuracy."""
         m1 = Mass(1e12)
         m2 = Mass(1e12)
-        T = Time(2.0)  # seconds
+        T = Time(2.0)
 
-        state = generate_elliptical_orbit(m1, m2, T)
-        initial_energy = total_energy(state, m1, m2)
+        bodies = generate_elliptical_orbit(m1, m2, T)
+        initial_energy = total_energy_bodies(bodies)
 
         # Take many small steps
         dt = Time(0.001)
-        current_state = state.copy()
+        current_bodies = bodies
         for _ in range(int(float(T) / float(dt))):
-            current_state = rk4_step(current_state, dt, m1, m2)
+            current_bodies = rk4_step(current_bodies, dt)
 
-        final_energy = total_energy(current_state, m1, m2)
+        final_energy = total_energy_bodies(current_bodies)
 
         # Energy should be conserved to high precision
-        relative_error = abs(float(final_energy) - float(initial_energy)) / abs(float(initial_energy))
+        relative_error = abs(final_energy - initial_energy) / abs(initial_energy)
         self.assertLess(relative_error, 1e-6)
 
     def test_check_stability_normal(self) -> None:
         """Test stability check passes for normal conditions."""
-        m1 = Mass(1e10)
-        m2 = Mass(1e10)
-        state = TwoBodyState.from_bodies(
-            position(0.0, 0.0), velocity(10.0, 0.0),
-            position(1000.0, 0.0), velocity(-10.0, 0.0)
-        )
+        bodies = [
+            body(1e10, 0.0, 0.0, 10.0, 0.0),
+            body(1e10, 1000.0, 0.0, -10.0, 0.0),
+        ]
 
-        self.assertTrue(check_stability(state, m1, m2))
+        self.assertTrue(check_stability(bodies))
 
     def test_check_stability_collision(self) -> None:
         """Test stability check fails for near-collision."""
-        m1 = Mass(1e20)
-        m2 = Mass(1e20)
         # Bodies very close together
-        state = TwoBodyState.from_bodies(
-            position(0.0, 0.0), velocity(0.0, 0.0),
-            position(0.001, 0.0), velocity(0.0, 0.0)
-        )
+        bodies = [
+            body(1e20, 0.0, 0.0, 0.0, 0.0),
+            body(1e20, 0.001, 0.0, 0.0, 0.0),
+        ]
 
-        self.assertFalse(check_stability(state, m1, m2))
+        self.assertFalse(check_stability(bodies))
 
-    def test_compute_accelerations_typed(self) -> None:
-        """Test that compute_accelerations returns typed Acceleration objects."""
-        m1 = Mass(1e10)
-        m2 = Mass(2e10)
-        state = TwoBodyState.from_bodies(
-            position(0.0, 0.0), velocity(0.0, 0.0),
-            position(100.0, 0.0), velocity(0.0, 0.0)
-        )
+    def test_compute_accelerations_returns_list(self) -> None:
+        """Test that compute_accelerations returns list of Acceleration objects."""
+        bodies = [
+            body(1e10, 0.0, 0.0, 0.0, 0.0),
+            body(2e10, 100.0, 0.0, 0.0, 0.0),
+        ]
 
-        a1, a2 = compute_accelerations(state, m1, m2)
+        accels = compute_accelerations(bodies)
 
-        # Check types
-        self.assertIsInstance(a1, Acceleration)
-        self.assertIsInstance(a2, Acceleration)
-
-        # a1 should point toward body 2 (positive x)
-        self.assertGreater(a1.x, 0)
-        # a2 should point toward body 1 (negative x)
-        self.assertLess(a2.x, 0)
+        self.assertEqual(len(accels), 2)
+        for a in accels:
+            self.assertIsInstance(a, Acceleration)
 
 
 class TestInitialConditions(unittest.TestCase):
@@ -293,7 +311,7 @@ class TestInitialConditions(unittest.TestCase):
 
     def test_generate_random_masses_ratio(self) -> None:
         """Test random masses are within specified ratio."""
-        for _ in range(100):  # Test multiple times
+        for _ in range(100):
             m1, m2 = generate_random_masses(ratio_max=10)
             ratio = max(float(m1), float(m2)) / min(float(m1), float(m2))
             self.assertLessEqual(ratio, 10)
@@ -306,7 +324,6 @@ class TestInitialConditions(unittest.TestCase):
         m_max = 1e11
         for _ in range(100):
             m1, m2 = generate_random_masses(m_min=m_min, m_max=m_max)
-            # Masses should be within range (with some tolerance for rounding)
             self.assertGreaterEqual(float(m1), m_min * 0.99)
             self.assertLessEqual(float(m1), m_max * 1.01)
             self.assertGreaterEqual(float(m2), m_min * 0.99)
@@ -326,14 +343,26 @@ class TestInitialConditions(unittest.TestCase):
         """Test semi-major axis calculation from period."""
         m1 = Mass(1e12)
         m2 = Mass(2e12)
-        T = Time(3.0)  # seconds
+        T = Time(3.0)
 
         a = compute_semi_major_axis(m1, m2, T)
 
-        # Verify with Kepler's third law: T² = 4π²a³/(GM)
         M = float(m1) + float(m2)
         expected_a = (G * M * float(T)**2 / (4 * np.pi**2)) ** (1/3)
         self.assertAlmostEqual(a, expected_a, places=10)
+
+    def test_generate_elliptical_orbit_returns_list(self) -> None:
+        """Test generate_elliptical_orbit returns list of Body objects."""
+        m1 = Mass(1e12)
+        m2 = Mass(2e12)
+        T = Time(2.5)
+
+        bodies = generate_elliptical_orbit(m1, m2, T)
+
+        self.assertIsInstance(bodies, list)
+        self.assertEqual(len(bodies), 2)
+        for b in bodies:
+            self.assertIsInstance(b, Body)
 
     def test_generate_elliptical_orbit_momentum(self) -> None:
         """Test generated orbit has zero total momentum."""
@@ -341,13 +370,12 @@ class TestInitialConditions(unittest.TestCase):
         m2 = Mass(2e12)
         T = Time(2.5)
 
-        # Test with various eccentricities and angles
         for e in [0.0, 0.3, 0.6]:
             for theta in [0.0, np.pi/4, np.pi]:
-                state = generate_elliptical_orbit(m1, m2, T, eccentricity=e, true_anomaly=theta)
-                p = total_momentum(state, m1, m2)
+                bodies = generate_elliptical_orbit(m1, m2, T, eccentricity=e, true_anomaly=theta)
+                p = total_momentum_bodies(bodies)
                 np.testing.assert_array_almost_equal(
-                    p.array, np.array([0.0, 0.0]), decimal=10,
+                    p, np.array([0.0, 0.0]), decimal=10,
                     err_msg=f"Failed for e={e}, theta={theta}"
                 )
 
@@ -357,19 +385,18 @@ class TestInitialConditions(unittest.TestCase):
         m2 = Mass(1e12)
         T = Time(2.0)
 
-        # Use circular orbit (e=0) for period test
-        state = generate_elliptical_orbit(m1, m2, T, eccentricity=0.0)
-        initial_pos = state.array.copy()
+        bodies = generate_elliptical_orbit(m1, m2, T, eccentricity=0.0)
+        initial_pos = np.array([b.position.array.copy() for b in bodies])
 
         # Simulate one full period
         dt = Time(0.001)
-        current_state = state.copy()
+        current_bodies = bodies
         for _ in range(int(float(T) / float(dt))):
-            current_state = rk4_step(current_state, dt, m1, m2)
+            current_bodies = rk4_step(current_bodies, dt)
 
-        # Should return close to initial position
-        pos_error = np.linalg.norm(current_state.array[:, 0] - initial_pos[:, 0])
-        max_separation = np.linalg.norm(initial_pos[0, 0] - initial_pos[1, 0])
+        final_pos = np.array([b.position.array for b in current_bodies])
+        pos_error = np.linalg.norm(final_pos - initial_pos)
+        max_separation = np.linalg.norm(initial_pos[0] - initial_pos[1])
         relative_error = pos_error / max_separation
 
         self.assertLess(relative_error, 0.01)
@@ -384,14 +411,14 @@ class TestInitialConditions(unittest.TestCase):
         a = compute_semi_major_axis(m1, m2, T)
 
         # At periapsis (theta=0), r = a(1-e)
-        state_peri = generate_elliptical_orbit(m1, m2, T, eccentricity=e, true_anomaly=0.0)
-        r_peri = np.linalg.norm(state_peri.position(0).array - state_peri.position(1).array)
+        bodies_peri = generate_elliptical_orbit(m1, m2, T, eccentricity=e, true_anomaly=0.0)
+        r_peri = np.linalg.norm(bodies_peri[0].position.array - bodies_peri[1].position.array)
         expected_peri = a * (1 - e)
         self.assertAlmostEqual(r_peri, expected_peri, places=8)
 
         # At apoapsis (theta=π), r = a(1+e)
-        state_apo = generate_elliptical_orbit(m1, m2, T, eccentricity=e, true_anomaly=np.pi)
-        r_apo = np.linalg.norm(state_apo.position(0).array - state_apo.position(1).array)
+        bodies_apo = generate_elliptical_orbit(m1, m2, T, eccentricity=e, true_anomaly=np.pi)
+        r_apo = np.linalg.norm(bodies_apo[0].position.array - bodies_apo[1].position.array)
         expected_apo = a * (1 + e)
         self.assertAlmostEqual(r_apo, expected_apo, places=8)
 
@@ -450,7 +477,7 @@ class TestIOHandler(unittest.TestCase):
             positions=np.random.rand(3, 2, 2),
             velocities=np.random.rand(3, 2, 2),
             momentum=np.random.rand(3, 2),
-            angular_momentum=np.random.rand(3, 3),  # 3D vector
+            angular_momentum=np.random.rand(3, 3),
             energy=np.random.rand(3),
             collision=False
         )
@@ -497,27 +524,20 @@ class TestTwoBodySimMain(unittest.TestCase):
     """Tests for two_body_sim.py main script output formatting."""
 
     def test_angular_momentum_relative_deviation_formatting(self) -> None:
-        """Test that angular momentum relative deviation can be formatted as scalar.
-
-        Regression test for bug where angular momentum became a 3D vector
-        but the main script still tried to format it as a scalar.
-        """
+        """Test that angular momentum relative deviation can be formatted as scalar."""
         from script.simulation import run_simulation
 
         m1 = Mass(1e12)
         m2 = Mass(1e12)
         T = Time(2.0)
 
-        state = generate_elliptical_orbit(m1, m2, T)
-        result = run_simulation(state, m1, m2, dt=Time(0.001), t_max=T)
+        bodies = generate_elliptical_orbit(m1, m2, T)
+        result = run_simulation(bodies, dt=Time(0.001), t_max=T)
 
-        # This is what two_body_sim.py does - should work with vector angular momentum
-        # Use magnitude for 3D vector comparison
         L0 = np.linalg.norm(result.angular_momentum[0])
         L_final = np.linalg.norm(result.angular_momentum[-1])
         dL_rel = abs(L_final - L0) / abs(L0)
 
-        # Should be able to format as scalar without error
         formatted = f"ΔL/L₀ = {dL_rel:.2e}"
         self.assertIn("ΔL/L₀", formatted)
 
@@ -529,21 +549,15 @@ class TestSimulationIntegration(unittest.TestCase):
         """Test that simulation detects collision and stops early."""
         from script.simulation import run_simulation
 
-        # Set up bodies very close together - acceleration will exceed threshold
-        # With m=1e20 kg, threshold=1e12 m/s², instability at r < 0.08m
-        m1 = Mass(1e20)
-        m2 = Mass(1e20)
         # Bodies 0.05m apart - should immediately trigger instability
-        state = TwoBodyState.from_bodies(
-            position(-0.025, 0.0), velocity(0.0, 0.0),
-            position(0.025, 0.0), velocity(0.0, 0.0)
-        )
+        bodies = [
+            body(1e20, -0.025, 0.0, 0.0, 0.0),
+            body(1e20, 0.025, 0.0, 0.0, 0.0),
+        ]
 
-        result = run_simulation(state, m1, m2, dt=Time(0.0001), t_max=Time(1.0))
+        result = run_simulation(bodies, dt=Time(0.0001), t_max=Time(1.0))
 
-        # Should detect collision immediately (first step)
         self.assertTrue(result.collision)
-        # Should have only 1 step recorded
         self.assertEqual(len(result.times), 1)
 
     def test_custom_stability_threshold(self) -> None:
@@ -554,19 +568,19 @@ class TestSimulationIntegration(unittest.TestCase):
         m2 = Mass(1e12)
         T = Time(2.0)
 
-        state = generate_elliptical_orbit(m1, m2, T)
+        bodies = generate_elliptical_orbit(m1, m2, T)
 
         # Run with very low threshold - should trigger collision detection
         result_low = run_simulation(
-            state, m1, m2, dt=Time(0.01), t_max=Time(1.0),
-            stability_threshold=1e-10  # Very low, should trigger immediately
+            bodies, dt=Time(0.01), t_max=Time(1.0),
+            stability_threshold=1e-10
         )
         self.assertTrue(result_low.collision)
 
         # Run with normal threshold - should complete without collision
         result_normal = run_simulation(
-            state, m1, m2, dt=Time(0.01), t_max=Time(1.0),
-            stability_threshold=1e12  # Normal threshold
+            bodies, dt=Time(0.01), t_max=Time(1.0),
+            stability_threshold=1e12
         )
         self.assertFalse(result_normal.collision)
 
@@ -578,10 +592,9 @@ class TestSimulationIntegration(unittest.TestCase):
         m2 = Mass(1e12)
         T = Time(2.0)
 
-        state = generate_elliptical_orbit(m1, m2, T)
-        result = run_simulation(state, m1, m2, dt=Time(0.001), t_max=T)
+        bodies = generate_elliptical_orbit(m1, m2, T)
+        result = run_simulation(bodies, dt=Time(0.001), t_max=T)
 
-        # Energy should be conserved
         initial_energy = result.energy[0]
         max_deviation = np.max(np.abs(result.energy - initial_energy))
         relative_deviation = max_deviation / abs(initial_energy)
@@ -596,10 +609,9 @@ class TestSimulationIntegration(unittest.TestCase):
         m2 = Mass(2e12)
         T = Time(2.0)
 
-        state = generate_elliptical_orbit(m1, m2, T)
-        result = run_simulation(state, m1, m2, dt=Time(0.001), t_max=T)
+        bodies = generate_elliptical_orbit(m1, m2, T)
+        result = run_simulation(bodies, dt=Time(0.001), t_max=T)
 
-        # For 2D motion, only z-component of angular momentum is nonzero
         initial_Lz = result.angular_momentum[0, 2]
         max_deviation = np.max(np.abs(result.angular_momentum[:, 2] - initial_Lz))
         relative_deviation = max_deviation / abs(initial_Lz)
@@ -614,13 +626,11 @@ class TestSimulationIntegration(unittest.TestCase):
         m2 = Mass(2e12)
         T = Time(2.0)
 
-        state = generate_elliptical_orbit(m1, m2, T)
-        result = run_simulation(state, m1, m2, dt=Time(0.001), t_max=T)
+        bodies = generate_elliptical_orbit(m1, m2, T)
+        result = run_simulation(bodies, dt=Time(0.001), t_max=T)
 
-        # Momentum should stay near zero
         max_momentum = np.max(np.linalg.norm(result.momentum, axis=1))
-        # Compare to typical momentum scale
-        typical_momentum = float(m1) * np.linalg.norm(state.velocity(0).array)
+        typical_momentum = float(m1) * np.linalg.norm(bodies[0].velocity.array)
         relative_deviation = max_momentum / typical_momentum
 
         self.assertLess(relative_deviation, 1e-10)

@@ -1,197 +1,102 @@
 #!/usr/bin/env python3
 """
-Physics calculations for two-body gravitational simulation.
+Physics calculations for gravitational simulation.
 
 This module provides functions for computing gravitational forces,
 accelerations, and conserved quantities (energy, momentum, angular momentum).
 
-All functions use typed physical quantities from the units module.
+Functions operate on single Body objects or pairs of Body objects.
 
 Usage:
-    from script.physics import gravitational_force, total_energy
+    from script.physics import gravitational_force, kinetic_energy
 """
 
 import numpy as np
-from numpy.typing import NDArray
 
 from script.units import (
     Mass, Energy, AngularMomentum as AngularMomentumType,
     Position, Velocity, Acceleration, Force, Momentum,
-    TwoBodyState,
+    Body,
 )
 
 # Gravitational constant in SI units: m³/(kg·s²)
 G: float = 6.6743e-11
 
 
-def gravitational_force(
-    m1: Mass,
-    m2: Mass,
-    r1: Position,
-    r2: Position
-) -> Force:
+def gravitational_force(b1: Body, b2: Body) -> Force:
     """
     Compute gravitational force on body 1 due to body 2.
 
     Args:
-        m1: Mass of body 1
-        m2: Mass of body 2
-        r1: Position of body 1
-        r2: Position of body 2
+        b1: Body experiencing the force
+        b2: Body exerting the force
 
     Returns:
-        Force on body 1 (directed toward body 2)
+        Force on b1 (directed toward b2)
     """
-    r_vec = r2.array - r1.array
+    r_vec = b2.position.array - b1.position.array
     r_mag = np.linalg.norm(r_vec)
     r_hat = r_vec / r_mag
-    force_mag = G * float(m1) * float(m2) / (r_mag ** 2)
+    force_mag = G * float(b1.mass) * float(b2.mass) / (r_mag ** 2)
     return Force(force_mag * r_hat)
 
 
-def compute_accelerations(
-    state: TwoBodyState,
-    m1: Mass,
-    m2: Mass
-) -> tuple[Acceleration, Acceleration]:
+def momentum(body: Body) -> Momentum:
     """
-    Compute acceleration vectors for both bodies.
+    Compute momentum of a single body.
 
     Args:
-        state: Two-body state containing positions and velocities
-        m1: Mass of body 1
-        m2: Mass of body 2
+        body: Body to compute momentum for
 
     Returns:
-        Tuple of (a1, a2) typed acceleration vectors
+        Momentum vector (p = m*v)
     """
-    r1 = state.position(0)
-    r2 = state.position(1)
-
-    f1 = gravitational_force(m1, m2, r1, r2)
-    a1 = f1 / m1
-    a2 = -f1 / m2  # Newton's third law
-
-    return a1, a2
+    return body.mass * body.velocity
 
 
-def total_momentum(
-    state: TwoBodyState,
-    m1: Mass,
-    m2: Mass
-) -> Momentum:
+def angular_momentum(body: Body) -> AngularMomentumType:
     """
-    Compute total momentum of the two-body system.
-
-    Args:
-        state: Two-body state containing positions and velocities
-        m1: Mass of body 1
-        m2: Mass of body 2
-
-    Returns:
-        Total momentum vector
-    """
-    v1 = state.velocity(0)
-    v2 = state.velocity(1)
-    return m1 * v1 + m2 * v2
-
-
-def angular_momentum(
-    state: TwoBodyState,
-    m1: Mass,
-    m2: Mass
-) -> AngularMomentumType:
-    """
-    Compute total angular momentum of the system about the origin.
+    Compute angular momentum of a single body about the origin.
 
     L = r × p where p = m*v (momentum).
 
     Args:
-        state: Two-body state containing positions and velocities
-        m1: Mass of body 1
-        m2: Mass of body 2
+        body: Body to compute angular momentum for
 
     Returns:
-        Total angular momentum vector (z-component nonzero for 2D motion in xy-plane)
+        Angular momentum vector (z-component nonzero for 2D motion in xy-plane)
     """
-    r1, v1 = state.position(0), state.velocity(0)
-    r2, v2 = state.position(1), state.velocity(1)
-
-    # L = r × p = r × (m*v)
-    p1 = m1 * v1
-    p2 = m2 * v2
-
-    L1 = r1.cross(p1)
-    L2 = r2.cross(p2)
-
-    return L1 + L2
+    p = momentum(body)
+    return body.position.cross(p)
 
 
-def kinetic_energy(
-    state: TwoBodyState,
-    m1: Mass,
-    m2: Mass
-) -> Energy:
+def kinetic_energy(body: Body) -> Energy:
     """
-    Compute total kinetic energy of the system.
+    Compute kinetic energy of a single body.
 
     Args:
-        state: Two-body state containing positions and velocities
-        m1: Mass of body 1
-        m2: Mass of body 2
+        body: Body to compute kinetic energy for
 
     Returns:
-        Total kinetic energy
+        Kinetic energy (KE = 0.5 * m * v²)
     """
-    v1 = state.velocity(0)
-    v2 = state.velocity(1)
-
-    KE1 = 0.5 * float(m1) * np.dot(v1.array, v1.array)
-    KE2 = 0.5 * float(m2) * np.dot(v2.array, v2.array)
-
-    return Energy(KE1 + KE2)
+    v = body.velocity
+    return Energy(0.5 * float(body.mass) * np.dot(v.array, v.array))
 
 
-def potential_energy(
-    state: TwoBodyState,
-    m1: Mass,
-    m2: Mass
-) -> Energy:
+def potential_energy(b1: Body, b2: Body) -> Energy:
     """
-    Compute gravitational potential energy of the system.
+    Compute gravitational potential energy between two bodies.
 
     Args:
-        state: Two-body state containing positions and velocities
-        m1: Mass of body 1
-        m2: Mass of body 2
+        b1: First body
+        b2: Second body
 
     Returns:
         Gravitational potential energy (always negative)
     """
-    r1 = state.position(0)
-    r2 = state.position(1)
-    r = np.linalg.norm(r2.array - r1.array)
-
-    return Energy(-G * float(m1) * float(m2) / r)
-
-
-def total_energy(
-    state: TwoBodyState,
-    m1: Mass,
-    m2: Mass
-) -> Energy:
-    """
-    Compute total mechanical energy of the system.
-
-    Args:
-        state: Two-body state containing positions and velocities
-        m1: Mass of body 1
-        m2: Mass of body 2
-
-    Returns:
-        Total energy (kinetic + potential)
-    """
-    return kinetic_energy(state, m1, m2) + potential_energy(state, m1, m2)
+    r = np.linalg.norm(b2.position.array - b1.position.array)
+    return Energy(-G * float(b1.mass) * float(b2.mass) / r)
 
 
 def main() -> None:

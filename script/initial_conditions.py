@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Initial condition generation for two-body gravitational simulation.
+Initial condition generation for gravitational simulation.
 
 This module provides functions to generate stable orbital configurations
 with zero total momentum.
@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 import random
 
 from script.physics import G
-from script.units import Mass, Time, TwoBodyState, position, velocity
+from script.units import Mass, Time, Body, Position, Velocity, position, velocity
 
 
 def generate_random_masses(
@@ -75,7 +75,7 @@ def generate_elliptical_orbit(
     period: Time,
     eccentricity: float = 0.0,
     true_anomaly: float = 0.0
-) -> TwoBodyState:
+) -> list[Body]:
     """
     Generate initial state for elliptical orbit with zero total momentum.
 
@@ -90,7 +90,7 @@ def generate_elliptical_orbit(
         true_anomaly: Starting angle from periapsis in radians
 
     Returns:
-        TwoBodyState for the initial configuration
+        List of two Body objects for the initial configuration
     """
     if not 0.0 <= eccentricity < 1.0:
         raise ValueError(f"Eccentricity must be in [0, 1), got {eccentricity}")
@@ -149,7 +149,7 @@ def generate_elliptical_orbit(
     pos2 = position(pos2_x, pos2_y)
     vel2 = velocity(vel2_x, vel2_y)
 
-    return TwoBodyState.from_bodies(pos1, vel1, pos2, vel2)
+    return [Body(m1, pos1, vel1), Body(m2, pos2, vel2)]
 
 
 def generate_random_eccentricity(max_e: float = 0.8) -> float:
@@ -207,8 +207,8 @@ def main() -> None:
     print(f"Eccentricity: {eccentricity:.3f}")
     print(f"True anomaly: {np.degrees(true_anomaly):.1f}°")
 
-    state = generate_elliptical_orbit(m1, m2, period, eccentricity, true_anomaly)
-    print(f"Initial state shape: {state.array.shape}")
+    bodies = generate_elliptical_orbit(m1, m2, period, eccentricity, true_anomaly)
+    print(f"Generated {len(bodies)} bodies")
 
 
 if __name__ == '__main__':

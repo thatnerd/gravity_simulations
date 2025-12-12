@@ -329,53 +329,31 @@ class Momentum(Vector2D):
 
 
 # ============================================================
-# State Container
+# Body Container
 # ============================================================
 
-@dataclass(slots=True)
-class TwoBodyState:
+@dataclass(frozen=True, slots=True)
+class Body:
     """
-    State of a two-body system optimized for computation.
+    Immutable body with mass, position, and velocity.
 
-    Stores raw numpy array internally but provides typed accessors.
-    The internal array has shape (2, 2, 2) = [body, pos_or_vel, x_or_y]
+    This is the fundamental unit for gravitational simulations.
     """
-    _data: NDArray[np.float64]
+    mass: Mass
+    position: Position
+    velocity: Velocity
 
-    @classmethod
-    def from_bodies(
-        cls,
-        pos1: Position, vel1: Velocity,
-        pos2: Position, vel2: Velocity
-    ) -> TwoBodyState:
-        """Construct state from typed position/velocity pairs."""
-        data = np.array([
-            [pos1.array, vel1.array],
-            [pos2.array, vel2.array]
-        ])
-        return cls(data)
+    def with_position(self, new_position: Position) -> Body:
+        """Return a new Body with updated position."""
+        return Body(self.mass, new_position, self.velocity)
 
-    @classmethod
-    def from_array(cls, data: NDArray[np.float64]) -> TwoBodyState:
-        """Construct state from raw numpy array of shape (2, 2, 2)."""
-        return cls(data)
+    def with_velocity(self, new_velocity: Velocity) -> Body:
+        """Return a new Body with updated velocity."""
+        return Body(self.mass, self.position, new_velocity)
 
-    @property
-    def array(self) -> NDArray[np.float64]:
-        """Raw array for computation in hot loops."""
-        return self._data
-
-    def position(self, body: int) -> Position:
-        """Get typed position for body 0 or 1."""
-        return Position(self._data[body, 0].copy())
-
-    def velocity(self, body: int) -> Velocity:
-        """Get typed velocity for body 0 or 1."""
-        return Velocity(self._data[body, 1].copy())
-
-    def copy(self) -> TwoBodyState:
-        """Create a copy of this state."""
-        return TwoBodyState(self._data.copy())
+    def with_state(self, new_position: Position, new_velocity: Velocity) -> Body:
+        """Return a new Body with updated position and velocity."""
+        return Body(self.mass, new_position, new_velocity)
 
 
 # ============================================================
@@ -430,6 +408,11 @@ def force(fx: float, fy: float) -> Force:
 def momentum(px: float, py: float) -> Momentum:
     """Create a Momentum from px, py components in kg·m/s."""
     return Momentum(np.array([px, py], dtype=np.float64))
+
+
+def body(m: float, x: float, y: float, vx: float, vy: float) -> Body:
+    """Create a Body from mass and position/velocity components."""
+    return Body(Mass(m), position(x, y), velocity(vx, vy))
 
 
 def main() -> None:

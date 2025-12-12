@@ -1,190 +1,148 @@
 #!/usr/bin/env python3
 """
-Numerical integration for two-body gravitational simulation.
+Numerical integration for gravitational simulation.
 
 This module provides RK4 integration and stability checking.
-Uses typed physical quantities at the API boundary but raw numpy
-arrays internally for performance.
+Works with lists of Body objects for n-body support.
 
 Usage:
     from script.integrator import rk4_step, check_stability
 """
 
+from itertools import combinations
 import numpy as np
 from numpy.typing import NDArray
 
-from script.units import Mass, Time, TwoBodyState, Acceleration
+from script.units import Mass, Time, Body, Position, Velocity, Acceleration
+from script.physics import G, gravitational_force
 
 # Acceleration threshold for collision detection (m/s²)
 STABILITY_THRESHOLD: float = 1e12
 
 
-def _compute_accelerations_fast(
-    state: NDArray[np.float64],
-    m1: float,
-    m2: float
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+def compute_accelerations(bodies: list[Body]) -> list[Acceleration]:
     """
-    Fast acceleration computation using raw arrays.
+    Compute acceleration vectors for all bodies.
 
-    Internal function for use in tight loops.
+    Uses Newton's third law to compute each pair interaction only once.
 
     Args:
-        state: State array of shape (2, 2, 2) - [body, pos/vel, x/y]
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
+        bodies: List of Body objects
 
     Returns:
-        Tuple of (a1, a2) acceleration arrays
+        List of Acceleration vectors, one per body
     """
-    from script.physics import G
+    n = len(bodies)
+    accels = [np.zeros(2, dtype=np.float64) for _ in range(n)]
 
-    r1 = state[0, 0]
-    r2 = state[1, 0]
+    for i, j in combinations(range(n), 2):
+        # Force on body i from body j
+        f = gravitational_force(bodies[i], bodies[j])
 
-    r_vec = r2 - r1
-    r_mag = np.linalg.norm(r_vec)
-    r_hat = r_vec / r_mag
-    force_mag = G * m1 * m2 / (r_mag ** 2)
+        # a = F/m, and Newton's third law
+        accels[i] += f.array / float(bodies[i].mass)
+        accels[j] -= f.array / float(bodies[j].mass)
 
-    f1 = force_mag * r_hat
-    a1 = f1 / m1
-    a2 = -f1 / m2  # Newton's third law
-
-    return a1, a2
+    return [Acceleration(a) for a in accels]
 
 
-def _derivatives_fast(
-    state: NDArray[np.float64],
-    m1: float,
-    m2: float
-) -> NDArray[np.float64]:
+def _derivatives(bodies: list[Body]) -> tuple[list[NDArray], list[NDArray]]:
     """
-    Fast derivative computation using raw arrays.
+    Compute derivatives for RK4 integration.
 
     For each body:
         d(position)/dt = velocity
         d(velocity)/dt = acceleration
 
     Args:
-        state: State array of shape (2, 2, 2) - [body, pos/vel, x/y]
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
+        bodies: List of Body objects
 
     Returns:
-        Derivative array of same shape as state
+        Tuple of (position_derivatives, velocity_derivatives) as numpy arrays
     """
-    derivs = np.zeros_like(state)
+    accels = compute_accelerations(bodies)
 
-    # Position derivatives are velocities
-    derivs[0, 0] = state[0, 1]
-    derivs[1, 0] = state[1, 1]
+    pos_derivs = [b.velocity.array for b in bodies]
+    vel_derivs = [a.array for a in accels]
 
-    # Velocity derivatives are accelerations
-    a1, a2 = _compute_accelerations_fast(state, m1, m2)
-    derivs[0, 1] = a1
-    derivs[1, 1] = a2
-
-    return derivs
+    return pos_derivs, vel_derivs
 
 
-def _rk4_step_fast(
-    state: NDArray[np.float64],
-    dt: float,
-    m1: float,
-    m2: float
-) -> NDArray[np.float64]:
-    """
-    Fast RK4 step using raw arrays.
-
-    Internal function for use in tight loops.
-
-    Args:
-        state: Current state array of shape (2, 2, 2)
-        dt: Time step (s)
-        m1: Mass of body 1 (kg)
-        m2: Mass of body 2 (kg)
-
-    Returns:
-        New state after time dt
-    """
-    k1 = _derivatives_fast(state, m1, m2)
-    k2 = _derivatives_fast(state + 0.5 * dt * k1, m1, m2)
-    k3 = _derivatives_fast(state + 0.5 * dt * k2, m1, m2)
-    k4 = _derivatives_fast(state + dt * k3, m1, m2)
-
-    return state + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
-
-
-def rk4_step(
-    state: TwoBodyState,
-    dt: Time,
-    m1: Mass,
-    m2: Mass
-) -> TwoBodyState:
+def rk4_step(bodies: list[Body], dt: Time) -> list[Body]:
     """
     Perform one RK4 integration step.
 
     Args:
-        state: Current two-body state
+        bodies: List of Body objects
         dt: Time step
-        m1: Mass of body 1
-        m2: Mass of body 2
 
     Returns:
-        New state after time dt
+        New list of Body objects after time dt
     """
-    new_array = _rk4_step_fast(state.array, float(dt), float(m1), float(m2))
-    return TwoBodyState.from_array(new_array)
+    dt_val = float(dt)
+    n = len(bodies)
 
+    # Extract current state
+    positions = [b.position.array.copy() for b in bodies]
+    velocities = [b.velocity.array.copy() for b in bodies]
+    masses = [b.mass for b in bodies]
 
-def compute_accelerations(
-    state: TwoBodyState,
-    m1: Mass,
-    m2: Mass
-) -> tuple[Acceleration, Acceleration]:
-    """
-    Compute typed acceleration vectors for both bodies.
+    def make_bodies(pos_list: list[NDArray], vel_list: list[NDArray]) -> list[Body]:
+        return [
+            Body(masses[i], Position(pos_list[i]), Velocity(vel_list[i]))
+            for i in range(n)
+        ]
 
-    Args:
-        state: Two-body state containing positions and velocities
-        m1: Mass of body 1
-        m2: Mass of body 2
+    # k1
+    dp1, dv1 = _derivatives(bodies)
 
-    Returns:
-        Tuple of (a1, a2) typed acceleration vectors
-    """
-    a1_arr, a2_arr = _compute_accelerations_fast(state.array, float(m1), float(m2))
-    return Acceleration(a1_arr), Acceleration(a2_arr)
+    # k2
+    pos_k2 = [positions[i] + 0.5 * dt_val * dp1[i] for i in range(n)]
+    vel_k2 = [velocities[i] + 0.5 * dt_val * dv1[i] for i in range(n)]
+    dp2, dv2 = _derivatives(make_bodies(pos_k2, vel_k2))
+
+    # k3
+    pos_k3 = [positions[i] + 0.5 * dt_val * dp2[i] for i in range(n)]
+    vel_k3 = [velocities[i] + 0.5 * dt_val * dv2[i] for i in range(n)]
+    dp3, dv3 = _derivatives(make_bodies(pos_k3, vel_k3))
+
+    # k4
+    pos_k4 = [positions[i] + dt_val * dp3[i] for i in range(n)]
+    vel_k4 = [velocities[i] + dt_val * dv3[i] for i in range(n)]
+    dp4, dv4 = _derivatives(make_bodies(pos_k4, vel_k4))
+
+    # Combine
+    new_bodies = []
+    for i in range(n):
+        new_pos = positions[i] + (dt_val / 6.0) * (dp1[i] + 2*dp2[i] + 2*dp3[i] + dp4[i])
+        new_vel = velocities[i] + (dt_val / 6.0) * (dv1[i] + 2*dv2[i] + 2*dv3[i] + dv4[i])
+        new_bodies.append(Body(masses[i], Position(new_pos), Velocity(new_vel)))
+
+    return new_bodies
 
 
 def check_stability(
-    state: TwoBodyState,
-    m1: Mass,
-    m2: Mass,
+    bodies: list[Body],
     threshold: float = STABILITY_THRESHOLD
 ) -> bool:
     """
     Check if the simulation is numerically stable.
 
-    Returns False if acceleration magnitude exceeds threshold,
+    Returns False if any acceleration magnitude exceeds threshold,
     indicating bodies are too close (collision).
 
     Args:
-        state: Two-body state
-        m1: Mass of body 1
-        m2: Mass of body 2
+        bodies: List of Body objects
         threshold: Maximum allowed acceleration (m/s²)
 
     Returns:
         True if stable, False if collision detected
     """
-    a1_arr, a2_arr = _compute_accelerations_fast(state.array, float(m1), float(m2))
-
-    a1_mag = np.linalg.norm(a1_arr)
-    a2_mag = np.linalg.norm(a2_arr)
-
-    return a1_mag < threshold and a2_mag < threshold
+    accels = compute_accelerations(bodies)
+    for a in accels:
+        if a.magnitude() >= threshold:
+            return False
+    return True
 
 
 def main() -> None:

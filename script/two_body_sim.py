@@ -191,10 +191,10 @@ def main() -> None:
 
     # Generate initial conditions
     print("\nGenerating initial conditions...")
-    initial_state = generate_elliptical_orbit(m1, m2, period, eccentricity, true_anomaly)
+    bodies = generate_elliptical_orbit(m1, m2, period, eccentricity, true_anomaly)
 
-    r1 = initial_state.position(0).array
-    r2 = initial_state.position(1).array
+    r1 = bodies[0].position.array
+    r2 = bodies[1].position.array
     separation = float(np.linalg.norm(r2 - r1))
     print(f"Initial separation: {separation:.3e} m")
 
@@ -202,7 +202,7 @@ def main() -> None:
     print("\nRunning simulation...")
     dt_time = Time(dt)
     t_max_time = Time(duration)
-    result = run_simulation(initial_state, m1, m2, dt=dt_time, t_max=t_max_time)
+    result = run_simulation(bodies, dt=dt_time, t_max=t_max_time)
 
     # Add extra metadata
     result.metadata['period'] = period_f

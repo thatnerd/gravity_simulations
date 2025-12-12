@@ -13,9 +13,9 @@ from script.units import (
     Scalar, Vector2D, Vector3D,
     Mass, Time, Energy, AngularMomentum,
     Position, Velocity, Acceleration, Force, Momentum,
-    TwoBodyState,
+    Body,
     mass, time, energy, angular_momentum,
-    position, velocity, acceleration, force, momentum,
+    position, velocity, acceleration, force, momentum, body,
 )
 
 
@@ -382,63 +382,81 @@ class TestMomentum:
         np.testing.assert_array_equal(result.array, np.array([-5.0, 3.0]))
 
 
-class TestTwoBodyState:
-    """Tests for TwoBodyState container."""
+class TestBody:
+    """Tests for Body container."""
 
-    def test_from_bodies(self) -> None:
-        p1 = position(1.0, 0.0)
-        v1 = velocity(0.0, 1.0)
-        p2 = position(-1.0, 0.0)
-        v2 = velocity(0.0, -1.0)
+    def test_body_creation(self) -> None:
+        m = mass(1e10)
+        p = position(1.0, 2.0)
+        v = velocity(3.0, 4.0)
 
-        state = TwoBodyState.from_bodies(p1, v1, p2, v2)
+        b = Body(m, p, v)
 
-        np.testing.assert_array_equal(state.position(0).array, p1.array)
-        np.testing.assert_array_equal(state.velocity(0).array, v1.array)
-        np.testing.assert_array_equal(state.position(1).array, p2.array)
-        np.testing.assert_array_equal(state.velocity(1).array, v2.array)
+        assert float(b.mass) == 1e10
+        assert b.position.x == 1.0
+        assert b.position.y == 2.0
+        assert b.velocity.x == 3.0
+        assert b.velocity.y == 4.0
 
-    def test_from_array(self) -> None:
-        data = np.array([
-            [[1.0, 0.0], [0.0, 1.0]],
-            [[-1.0, 0.0], [0.0, -1.0]]
-        ])
-        state = TwoBodyState.from_array(data)
+    def test_body_factory(self) -> None:
+        b = body(1e10, 1.0, 2.0, 3.0, 4.0)
 
-        assert state.position(0).x == 1.0
-        assert state.velocity(1).y == -1.0
+        assert float(b.mass) == 1e10
+        assert b.position.x == 1.0
+        assert b.position.y == 2.0
+        assert b.velocity.x == 3.0
+        assert b.velocity.y == 4.0
 
-    def test_array_property(self) -> None:
-        data = np.zeros((2, 2, 2))
-        state = TwoBodyState.from_array(data)
-        np.testing.assert_array_equal(state.array, data)
+    def test_body_is_immutable(self) -> None:
+        b = body(1e10, 1.0, 2.0, 3.0, 4.0)
 
-    def test_copy(self) -> None:
-        p1 = position(1.0, 0.0)
-        v1 = velocity(0.0, 1.0)
-        p2 = position(-1.0, 0.0)
-        v2 = velocity(0.0, -1.0)
+        # Body should be frozen (immutable)
+        with pytest.raises(Exception):  # FrozenInstanceError
+            b.mass = mass(2e10)
 
-        state = TwoBodyState.from_bodies(p1, v1, p2, v2)
-        state_copy = state.copy()
+    def test_with_position(self) -> None:
+        b = body(1e10, 1.0, 2.0, 3.0, 4.0)
+        new_pos = position(10.0, 20.0)
 
-        # Modify original
-        state._data[0, 0, 0] = 999.0
+        b2 = b.with_position(new_pos)
 
-        # Copy should be unchanged
-        assert state_copy.position(0).x == 1.0
+        # Original unchanged
+        assert b.position.x == 1.0
+        # New body has new position
+        assert b2.position.x == 10.0
+        # Mass and velocity preserved
+        assert float(b2.mass) == 1e10
+        assert b2.velocity.x == 3.0
 
-    def test_position_returns_copy(self) -> None:
-        """Ensure position() returns a copy, not a view."""
-        data = np.array([
-            [[1.0, 0.0], [0.0, 1.0]],
-            [[-1.0, 0.0], [0.0, -1.0]]
-        ])
-        state = TwoBodyState.from_array(data)
+    def test_with_velocity(self) -> None:
+        b = body(1e10, 1.0, 2.0, 3.0, 4.0)
+        new_vel = velocity(30.0, 40.0)
 
-        p = state.position(0)
-        # Position is frozen, but verify array independence
-        assert p.x == 1.0
+        b2 = b.with_velocity(new_vel)
+
+        # Original unchanged
+        assert b.velocity.x == 3.0
+        # New body has new velocity
+        assert b2.velocity.x == 30.0
+        # Mass and position preserved
+        assert float(b2.mass) == 1e10
+        assert b2.position.x == 1.0
+
+    def test_with_state(self) -> None:
+        b = body(1e10, 1.0, 2.0, 3.0, 4.0)
+        new_pos = position(10.0, 20.0)
+        new_vel = velocity(30.0, 40.0)
+
+        b2 = b.with_state(new_pos, new_vel)
+
+        # Original unchanged
+        assert b.position.x == 1.0
+        assert b.velocity.x == 3.0
+        # New body has new state
+        assert b2.position.x == 10.0
+        assert b2.velocity.x == 30.0
+        # Mass preserved
+        assert float(b2.mass) == 1e10
 
 
 class TestPhysicalEquations:
